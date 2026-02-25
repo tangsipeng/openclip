@@ -31,21 +31,38 @@ class QwenAPIClient:
         """
         self.api_key = api_key or os.getenv(API_KEY_ENV_VARS["qwen"])
         self.base_url = base_url or LLM_CONFIG["qwen"]["base_url"]
+        self.legacy_base_url = LLM_CONFIG["qwen"]["legacy_base_url"]
+        self.legacy_models = LLM_CONFIG["qwen"]["legacy_models"]
         
         if not self.api_key:
             raise ValueError(f"API key is required. Set {API_KEY_ENV_VARS['qwen']} environment variable or pass api_key parameter.")
     
-    def _make_request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _is_legacy_model(self, model: str) -> bool:
+        """Check if model uses legacy endpoint"""
+        return model in self.legacy_models
+    
+    def _make_request(self, payload: Dict[str, Any], model: str) -> Dict[str, Any]:
         """Make HTTP request to Qwen API"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
         
+        # Use legacy endpoint for old models
+        url = self.legacy_base_url if self._is_legacy_model(model) else self.base_url
+        
         try:
-            response = requests.post(self.base_url, headers=headers, json=payload)
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.HTTPError as e:
+            # Log the full error response for debugging
+            error_detail = ""
+            try:
+                error_detail = response.json()
+            except:
+                error_detail = response.text
+            raise Exception(f"API request failed: {e}\nResponse: {error_detail}")
         except requests.exceptions.RequestException as e:
             raise Exception(f"API request failed: {e}")
     
@@ -63,7 +80,7 @@ class QwenAPIClient:
         
         Args:
             messages: List of conversation messages
-            model: Model to use (qwen-turbo, qwen-plus, qwen-max, etc.)
+            model: Model to use (qwen-turbo, qwen-plus, qwen-max, qwen3.5-flash, etc.)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature (0.0 to 2.0)
             top_p: Top-p sampling parameter
@@ -79,20 +96,33 @@ class QwenAPIClient:
         top_p = top_p or LLM_CONFIG["qwen"]["default_params"]["top_p"]
         stream = stream if stream is not None else LLM_CONFIG["qwen"]["default_params"]["stream"]
         
-        payload = {
-            "model": model,
-            "input": {
-                "messages": [{"role": msg.role, "content": msg.content} for msg in messages]
-            },
-            "parameters": {
+        # Format payload based on model type
+        if self._is_legacy_model(model):
+            # Legacy DashScope format
+            payload = {
+                "model": model,
+                "input": {
+                    "messages": [{"role": msg.role, "content": msg.content} for msg in messages]
+                },
+                "parameters": {
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "incremental_output": stream
+                }
+            }
+        else:
+            # OpenAI-compatible format for new models
+            payload = {
+                "model": model,
+                "messages": [{"role": msg.role, "content": msg.content} for msg in messages],
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "top_p": top_p,
-                "incremental_output": stream
+                "stream": stream
             }
-        }
         
-        return self._make_request(payload)
+        return self._make_request(payload, model)
     
     def simple_chat(self, prompt: str, model: Optional[str] = None) -> str:
         """
@@ -112,9 +142,16 @@ class QwenAPIClient:
         response = self.chat_completion(messages, model=model)
         
         try:
-            return response["output"]["text"]
-        except KeyError:
-            raise Exception(f"Unexpected response format: {response}")
+            # Try OpenAI-compatible format first (new models)
+            if "choices" in response:
+                return response["choices"][0]["message"]["content"]
+            # Fall back to legacy format (old models)
+            elif "output" in response:
+                return response["output"]["text"]
+            else:
+                raise Exception(f"Unexpected response format: {response}")
+        except (KeyError, IndexError) as e:
+            raise Exception(f"Failed to parse response: {e}\nResponse: {response}")
     
     def conversation_chat(
         self,
@@ -146,9 +183,16 @@ class QwenAPIClient:
         response = self.chat_completion(conversation, model=model)
         
         try:
-            return response["output"]["text"]
-        except KeyError:
-            raise Exception(f"Unexpected response format: {response}")
+            # Try OpenAI-compatible format first (new models)
+            if "choices" in response:
+                return response["choices"][0]["message"]["content"]
+            # Fall back to legacy format (old models)
+            elif "output" in response:
+                return response["output"]["text"]
+            else:
+                raise Exception(f"Unexpected response format: {response}")
+        except (KeyError, IndexError) as e:
+            raise Exception(f"Failed to parse response: {e}\nResponse: {response}")
 
 
 def main():

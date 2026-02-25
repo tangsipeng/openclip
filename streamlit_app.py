@@ -212,7 +212,9 @@ DEFAULT_DATA = {
     # Language setting
     'ui_language': "zh",
     # Processing result
-    'processing_result': None
+    'processing_result': None,
+    # Clip preview state (for refresh persistence)
+    'clip_preview_state': None
 }
 
 # Initialize file if it doesn't exist
@@ -230,8 +232,24 @@ def load_from_file():
     return saved
 
 def save_to_file(data):
-    with open(FILE_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+    """Save data to file with atomic write to prevent corruption"""
+    import tempfile
+    import shutil
+    
+    # Write to a temporary file first
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir=os.path.dirname(FILE_PATH))
+    try:
+        with os.fdopen(temp_fd, 'w') as f:
+            json.dump(data, f, indent=2)
+        # Atomic rename - only replace the original if write succeeded
+        shutil.move(temp_path, FILE_PATH)
+    except Exception as e:
+        # Clean up temp file if something went wrong
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        raise e
 
 # Load persistent data
 data = load_from_file()
@@ -259,10 +277,30 @@ if 'processing' not in st.session_state:
 
 # Initialize clip preview/selection state (two-phase processing)
 if 'clip_preview_mode' not in st.session_state:
-    st.session_state.clip_preview_mode = False
-    st.session_state.phase1_result = None
-    st.session_state.phase1_params = None
-    st.session_state.clip_selections = {}
+    # Try to restore from persistent storage
+    saved_preview_state = data.get('clip_preview_state')
+    if saved_preview_state:
+        st.session_state.clip_preview_mode = saved_preview_state.get('clip_preview_mode', False)
+        
+        # Convert phase1_result dict back to object
+        phase1_result_dict = saved_preview_state.get('phase1_result')
+        if phase1_result_dict:
+            class ResultObject:
+                def __init__(self, data):
+                    for key, value in data.items():
+                        setattr(self, key, value)
+            st.session_state.phase1_result = ResultObject(phase1_result_dict)
+        else:
+            st.session_state.phase1_result = None
+        
+        st.session_state.phase1_params = saved_preview_state.get('phase1_params')
+        st.session_state.clip_selections = saved_preview_state.get('clip_selections', {})
+    else:
+        st.session_state.clip_preview_mode = False
+        st.session_state.phase1_result = None
+        st.session_state.phase1_params = None
+        st.session_state.clip_selections = {}
+    
     st.session_state.phase2_processing = False
     st.session_state.phase2_thread = None
     st.session_state.phase2_outcome = {'result': None, 'error': None}
@@ -837,6 +875,42 @@ def _finalize_results(result):
     }
     save_to_file(data)
 
+# --- Helper to save clip preview state for refresh persistence ---
+def _save_clip_preview_state():
+    """Save clip preview state to persistent storage so it survives page refresh"""
+    # Only save essential data from phase1_result to avoid huge JSON files
+    phase1_result_dict = None
+    if st.session_state.phase1_result:
+        result = st.session_state.phase1_result
+        # Only save the clip generation info which is needed for preview
+        phase1_result_dict = {
+            'success': result.success,
+            'clip_generation': getattr(result, 'clip_generation', None),
+            'engaging_moments_analysis': getattr(result, 'engaging_moments_analysis', None),
+        }
+    
+    data['clip_preview_state'] = {
+        'clip_preview_mode': st.session_state.clip_preview_mode,
+        'phase1_result': phase1_result_dict,
+        'phase1_params': st.session_state.phase1_params,
+        'clip_selections': st.session_state.clip_selections,
+    }
+    try:
+        save_to_file(data)
+    except Exception as e:
+        # Log error but don't crash the app
+        print(f"Warning: Failed to save clip preview state: {e}")
+
+# --- Helper to clear clip preview state ---
+def _clear_clip_preview_state():
+    """Clear clip preview state from both session and persistent storage"""
+    st.session_state.clip_preview_mode = False
+    st.session_state.phase1_result = None
+    st.session_state.phase1_params = None
+    st.session_state.clip_selections = {}
+    data['clip_preview_state'] = None
+    save_to_file(data)
+
 # --- Handle finished processing result (runs on the rerun after thread completes) ---
 _outcome = st.session_state.processing_outcome
 _finished_result = _outcome['result']
@@ -862,6 +936,8 @@ if not is_processing and (_finished_result is not None or _finished_error is not
                 st.session_state.clip_selections = {
                     i: True for i in range(len(clip_gen['clips_info']))
                 }
+                # Save state to persistent storage for refresh persistence
+                _save_clip_preview_state()
                 st.rerun()
             else:
                 # No preview needed — finalize directly
@@ -884,6 +960,17 @@ if st.session_state.clip_preview_mode and not st.session_state.phase2_processing
         clips_info = clip_gen['clips_info']
         output_dir_path = Path(clip_gen.get('output_dir', ''))
 
+        # Clean up clip_selections to only include valid indices
+        valid_indices = set(range(len(clips_info)))
+        st.session_state.clip_selections = {
+            i: v for i, v in st.session_state.clip_selections.items() 
+            if i in valid_indices
+        }
+        # Ensure all clips have a selection state (default to True)
+        for i in valid_indices:
+            if i not in st.session_state.clip_selections:
+                st.session_state.clip_selections[i] = True
+
         # Display clips in 2-column grid with checkboxes
         cols = st.columns(2, gap="small")
         for i, clip in enumerate(clips_info):
@@ -902,14 +989,17 @@ if st.session_state.clip_preview_mode and not st.session_state.phase2_processing
                             value=st.session_state.clip_selections.get(i, True),
                             key=f"clip_select_{i}"
                         )
-                        st.session_state.clip_selections[i] = selected
+                        # Update selection and save state if changed
+                        if st.session_state.clip_selections.get(i) != selected:
+                            st.session_state.clip_selections[i] = selected
+                            _save_clip_preview_state()
                         st.video(str(clip_path), width=450)
                         duration = clip.get('duration', 'N/A')
                         engagement = clip.get('engagement_level', 'N/A')
                         st.caption(f"**{title}** | Duration: {duration} | Engagement: {engagement}")
 
-        # Count selected clips
-        selected_count = sum(1 for v in st.session_state.clip_selections.values() if v)
+        # Count selected clips - only count valid indices
+        selected_count = sum(1 for i, v in st.session_state.clip_selections.items() if i in valid_indices and v)
         total_count = len(clips_info)
 
         # Action buttons
@@ -933,6 +1023,7 @@ if st.session_state.clip_preview_mode and not st.session_state.phase2_processing
             all_selected = all(st.session_state.clip_selections.values())
             for k in st.session_state.clip_selections:
                 st.session_state.clip_selections[k] = not all_selected
+            _save_clip_preview_state()
             st.rerun()
 
         if selected_count == 0:
@@ -941,10 +1032,7 @@ if st.session_state.clip_preview_mode and not st.session_state.phase2_processing
         if skip_clicked:
             # Finalize with Phase 1 results only (no titles/covers)
             _finalize_results(phase1_result)
-            st.session_state.clip_preview_mode = False
-            st.session_state.phase1_result = None
-            st.session_state.phase1_params = None
-            st.session_state.clip_selections = {}
+            _clear_clip_preview_state()
             st.rerun()
 
         if continue_clicked and selected_count > 0:
@@ -1035,10 +1123,7 @@ if st.session_state.phase2_processing:
             just_processed = True
 
         # Clean up preview state
-        st.session_state.clip_preview_mode = False
-        st.session_state.phase1_result = None
-        st.session_state.phase1_params = None
-        st.session_state.clip_selections = {}
+        _clear_clip_preview_state()
         st.session_state.phase2_outcome = {'result': None, 'error': None}
         st.session_state.phase2_progress = {'status': '', 'progress': 0}
 

@@ -1,7 +1,9 @@
 # Engaging Moments Analysis - Video Part
 
 ## Task
-Analyze the provided video transcript and identify potential interesting and engaging moments from live streaming videos. Focus on segments that would be compelling for viewers and suitable for creating short clips.
+Analyze the provided video transcript and identify interesting and engaging moments from live streaming videos. Focus on segments that would be compelling for viewers and suitable for creating short clips.
+
+**CRITICAL**: Only analyze the transcript provided to you. All timestamps MUST exist in the actual transcript - do not hallucinate or use placeholder timestamps.
 
 ## Content Type Classification
 
@@ -84,46 +86,32 @@ In addition to the general criteria above, apply these type-specific nuances bas
 
 ## Requirements
 
-### Content Guidelines
-- Create **attractive and engaging** titles for each moment (no emojis, punctuation allowed)
-- Titles should avoid sensitive, negative, hate, or offensive words
-- Co-hosting segments and interactive moments are usually most engaging
-- Gossip moments are usually engaging
-- Include relevant transcript excerpts
-- Provide clear explanations for why each moment is engaging
-
-### Duration Constraints
-- Each engaging moment must be AT LEAST 30 seconds long
-- Each engaging moment must be LESS THAN 4 minutes long
-- Target optimal duration: 45-180 seconds for best short-form engagement
+### Duration Constraints (Must Follow)
+- Minimum duration: 30 seconds
+- Maximum duration: 4 minutes (240 seconds)
+- Optimal range: 45-180 seconds for best short-form engagement
+- If a moment is shorter than 30 seconds, extend it to include context
+- If a moment is longer than 4 minutes, split it into multiple moments or trim to the most engaging part
 
 ### Time Boundary Principles (Critical)
 
+**MUST USE ACTUAL TIMESTAMPS FROM THE PROVIDED TRANSCRIPT**
+- Do not invent or hallucinate timestamps
+- Verify every timestamp exists in the transcript before including it
+- The transcript excerpt must match the actual text between start_time and end_time
+
 **How to determine `start_time`:**
 - Locate the first core statement about the engaging moment
-- Ignore unrelated small talk, filler words, or transitions before it
-- Prefer starting at semantic boundaries for natural introduction
+- Skip unrelated small talk, filler words, or transitions before it
+- Start at semantic boundaries for natural introduction
+- Look for topic introduction phrases, opinion shifts, or new discussion subjects
 
 **How to determine `end_time` (Most Important):**
-- MUST be the end timestamp of the LAST relevant sentence covering the core moment
-- Ensure semantic completeness - avoid abrupt cut-off points
-- Prefer ending at natural pauses, summary statements, or topic transitions
-- If there are summary, transitional, or unrelated sentences after the moment ends, DO NOT include them. The `end_time` must end BEFORE these sentences start
-- **Wrong approach**: Blindly setting `end_time` to the end of the transcript. This must be avoided.
-
-### Semantic Boundary Recognition
-
-**Natural Start Point Features:**
-- Topic introduction phrases ("speaking of...", "about...", "let's talk about...")
-- Opinion shifts ("but...", "however...", "on the other hand...")
-- New discussion subject or case introduction
-- Clear tone or pitch changes
-
-**Natural End Point Features:**
-- Summary statements ("overall...", "in summary...", "that's...")
-- Topic transition signals ("next...", "also...", "changing topic...")
-- Opinion closure ("so...", "therefore...", "that's my view")
-- Natural pauses or relaxed tone
+- MUST be the timestamp of the LAST relevant sentence covering the core moment
+- Ensure semantic completeness - avoid abrupt cut-offs
+- End at natural pauses, summary statements, or topic transitions
+- DO NOT include unrelated content after the moment ends
+- DO NOT blindly set end_time to the end of the transcript
 
 **Avoid Cutting At:**
 - Middle of sentences
@@ -131,20 +119,37 @@ In addition to the general criteria above, apply these type-specific nuances bas
 - Critical logic reasoning steps
 - Continuous discussions without clear semantic boundaries
 
+### Handling Overlapping Moments
+- If two engaging moments overlap in time, choose the stronger one
+- Do not create multiple clips from the same time range
+- Ensure each moment has a unique, non-overlapping time range
+
+### Content Guidelines
+- Create attractive and engaging titles (no emojis, punctuation allowed)
+- Titles should avoid sensitive, negative, hate, or offensive words
+- Co-hosting segments and interactive moments are usually most engaging
+- Include relevant transcript excerpts that match the time range exactly
+- Provide clear explanations for why each moment is engaging
+
 ### Engagement Analysis
 - Provide engagement levels: "high", "medium", or "low"
 - Add relevant tags from: ["co-hosting", "interactive", "humorous", "live-chemistry", "funny", "highlight", "reaction", "gaming", "chat-interaction", "insight", "inspiring", "controversial", "relatable", "valuable", "educational"]
 - Include "why_engaging" explanations that describe what makes each moment compelling
 
 ## Analysis Instructions
-1. **Analyze content**: First, analyze the overall content type of the video from the transcript
-2. **Apply ALL criteria**: Always use the general engagement criteria, AND add type-specific nuances for your detected content type
-3. Carefully review the transcript for segments matching these criteria
-4. Ensure each moment has clear engagement value for clip creation
-5. Focus on segments that would work well as standalone short videos
-6. Provide detailed "why_engaging" explanations to justify selections
-7. Use appropriate engagement levels and relevant tags
-8. Extract meaningful transcript portions that capture the essence of each moment
+
+1. **Read the entire transcript first** - Understand the full context before identifying moments
+2. **Classify content type** - Determine which category best fits the video
+3. **Apply engagement criteria** - Use both general and type-specific criteria
+4. **Identify candidate moments** - Find segments that meet the engagement standards
+5. **Verify timestamps** - Ensure all timestamps actually exist in the provided transcript
+6. **Check duration** - Confirm each moment is 30-240 seconds long
+7. **Avoid overlaps** - Ensure moments don't overlap in time
+8. **Quality over quantity** - Only include genuinely engaging moments
+9. **Extract transcripts** - Copy the exact text from the transcript for each moment
+10. **Write compelling titles** - Follow the language-specific title guidelines
+
+**If no moments meet the criteria**: Return an empty array rather than forcing low-quality selections.
 
 ## Output Format
 Return your response as a JSON object following this exact structure:
@@ -155,27 +160,27 @@ Return your response as a JSON object following this exact structure:
   "detected_content_type": "entertainment",
   "engaging_moments": [
     {
-      "title": "七人接力鉴定假发造型，现场即兴互动引爆弹幕高潮！",
-      "start_time": "00:01:30",
-      "end_time": "00:02:45",
+      "title": "First engaging moment title without emojis",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
       "duration_seconds": 75,
-      "transcript": "Relevant transcript content for this moment...",
+      "transcript": "Actual transcript excerpt from the provided transcript that corresponds to this time range...",
       "engagement_details": {
         "engagement_level": "high"
       },
-      "why_engaging": "多人互动环节，现场气氛热烈，弹幕互动频繁，具有很强的娱乐性和观赏价值",
+      "why_engaging": "Detailed explanation of why this moment is engaging",
       "tags": ["co-hosting", "interactive", "humorous", "live-chemistry"]
     },
     {
-      "title": "主播现场模仿秀惟妙惟肖 网友弹幕笑翻天",
-      "start_time": "00:05:20",
-      "end_time": "00:06:10",
-      "duration_seconds": 50,
-      "transcript": "Another relevant transcript excerpt...",
+      "title": "Second engaging moment title without emojis",
+      "start_time": "HH:MM:SS",
+      "end_time": "HH:MM:SS",
+      "duration_seconds": 60,
+      "transcript": "Another actual transcript excerpt from the provided transcript...",
       "engagement_details": {
         "engagement_level": "medium"
       },
-      "why_engaging": "主播模仿惟妙惟肖，现场气氛欢乐，具有一定的娱乐效果",
+      "why_engaging": "Detailed explanation of why this moment is engaging",
       "tags": ["humorous", "funny", "highlight"]
     }
   ],
@@ -184,6 +189,21 @@ Return your response as a JSON object following this exact structure:
 }
 ```
 
+**CRITICAL TIMESTAMP RULES:**
+1. **start_time** and **end_time** MUST correspond to actual timestamps in the provided transcript
+2. DO NOT use placeholder timestamps like "HH:MM:SS" or example timestamps like "00:01:30"
+3. The **transcript** field must contain the exact text from the provided transcript between start_time and end_time
+4. Verify every timestamp exists in the transcript before including it
+5. If you cannot find valid timestamps, return an empty array
+
+**IMPORTANT QUALITY GUIDELINES:**
+1. You can identify MULTIPLE engaging moments if they exist (as shown in the example with 2 moments)
+2. If NO moments meet the engagement criteria, return: `"engaging_moments": []` with `"total_moments": 0`
+3. DO NOT force output if the content lacks genuine engagement value
+4. Quality over quantity - only include moments that truly meet the standards
+5. Better to return zero moments than low-quality or hallucinated selections
+6. Ensure moments do not overlap in time - each should have a unique time range
+
 ## Field Specifications
 
 ### Top-Level Required Fields:
@@ -191,25 +211,22 @@ Return your response as a JSON object following this exact structure:
 - **detected_content_type**: The content type category detected from the video (entertainment/knowledge/speech/opinion/experience/business/content_review)
 
 ### Required Fields for Each Moment:
-- **title**: Compelling title without emojis
+- **title**: Compelling title without emojis (follow language-specific guidelines)
 - **start_time**: Simple time format (HH:MM:SS or MM:SS) - NOT SRT format with milliseconds
 - **end_time**: Simple time format (HH:MM:SS or MM:SS) - NOT SRT format with milliseconds
-- **duration_seconds**: Integer duration in seconds
-- **transcript**: Relevant transcript excerpt from the moment
-- **engagement_details**: Object with "engagement_level" ("high", "medium", "low")
-- **why_engaging**: Explanation of what makes this moment compelling.
+- **duration_seconds**: Integer duration in seconds (must be 30-240)
+- **transcript**: Exact transcript excerpt from the provided transcript matching the time range
+- **engagement_details**: Object with "engagement_level" ("high", "medium", or "low")
+- **why_engaging**: Detailed explanation of what makes this moment compelling
 - **tags**: Array of relevant tags from the approved list
-
-### Time Boundary Guidelines:
-- **start_time**: Should be the first relevant sentence of the moment, not include unrelated filler
-- **end_time**: Should be the last relevant sentence - NOT the end of transcript
-- **Semantic completeness**: Ensure the moment ends at a natural boundary, not mid-thought
-- **Avoid**: Cutting at random points, including transitional/unrelated content after the moment
 
 ### Engagement Level Guidelines:
 - **"high"**: Exceptional moments with strong viewer appeal, multiple interactions, humor, or memorable content
 - **"medium"**: Good moments with decent entertainment value and some interaction
 - **"low"**: Mild interest moments that still meet minimum engagement criteria
+
+### Approved Tags:
+["co-hosting", "interactive", "humorous", "live-chemistry", "funny", "highlight", "reaction", "gaming", "chat-interaction", "insight", "inspiring", "controversial", "relatable", "valuable", "educational"]
 
 ## IMPORTANT: JSON Response Format
 - Return ONLY valid JSON, no additional text or explanations
