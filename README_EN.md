@@ -13,7 +13,7 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
 ## 📢 News
 
 - **2026-03-01**: 
-  - Streamlit interface now supports background job processing and concurrent video processing (**open new tabs** to process multiple videos)
+  - Streamlit interface now supports [background job processing and concurrent video processing](#concurrent-processing)
   - Added [speaker identification (Preview)](#speaker-identification) — use `--speaker-references` to automatically label speakers by name in transcripts for interviews, panels, and podcasts
   - Improved AI prompts to reduce timestamp format confusion (e.g., `00:01:55` vs `01:55:00`)
 - **2025-02-26**:
@@ -115,9 +115,34 @@ Once the app starts, open your browser and visit the displayed URL (typically `h
 
 **Advantages:** No need to remember command-line parameters, provides visual operation interface, suitable for all users.
 
-**Concurrent Processing:** The Streamlit interface supports processing multiple video tasks simultaneously:
-- Click "Process Video" to start the first task → automatically tracked
-- **Open a new tab** to start the second task → independently tracked in the new tab
+<a id="concurrent-processing"></a>
+<details>
+<summary>🔄 Concurrent Processing & Background Jobs</summary>
+
+The Streamlit interface supports background job processing and concurrent video processing:
+
+**Background Job Processing:**
+- Video processing runs in the background, you can close the browser
+- Jobs are persisted, reopen the page to continue viewing
+- Each job runs independently without interference
+
+**Concurrent Video Processing:**
+- Click "Process Video" to start the first job → automatically tracked
+- **Open a new tab** to start the second job → independently tracked in the new tab
+- Each tab can track different jobs independently
+
+**Watch Progress Feature:**
+- Click "👁️ Watch Progress" button on job cards to switch tracking
+- "✓ Watching" indicator shows which job is currently being tracked
+- Real-time progress updates and current processing step
+
+**Job Management:**
+- View all job statuses (processing, completed, failed)
+- Cancel running jobs
+- Delete completed or failed jobs
+- View job details (creation time, processing duration, etc.)
+
+</details>
 
 #### Option B: Using AI Agent Skills
 
