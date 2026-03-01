@@ -47,7 +47,7 @@ test_output/
 test_final/
 debug_responses/
 archive/
-docs/
+docs/dev/
 examples/
 tests/
 .claude/settings.json
@@ -62,3 +62,9 @@ all_artistic_styles_showcase/
 *.tmp
 *.log
 demo/demo_skill.mov
+# Local development config
+AGENTS.md
+CLAUDE.md
+.trae/rules/
+.kiro/steering/
+.kiro/hooks/
