@@ -26,11 +26,12 @@ from core.cover_image_generator import CoverImageGenerator, COVER_COLORS
 
 # Import our utilities (including processing result classes)
 from core.video_utils import (
-    VideoFileValidator, 
+    VideoFileValidator,
     process_local_video_file,
     ProcessingResult,
     ResultsFormatter,
-    find_existing_download
+    find_existing_download,
+    insights_to_clip_format,
 )
 from core.config import DEFAULT_LLM_PROVIDER, DEFAULT_TITLE_STYLE, API_KEY_ENV_VARS, MAX_DURATION_MINUTES, WHISPER_MODEL, MAX_CLIPS, SKIP_DOWNLOAD, SKIP_TRANSCRIPT
 
@@ -66,7 +67,8 @@ class VideoOrchestrator:
                 cover_fill_color: str = "yellow",
                 cover_outline_color: str = "black",
                 enable_diarization: bool = False,
-                speaker_references_dir: Optional[str] = None):
+                speaker_references_dir: Optional[str] = None,
+                mode: str = "engaging_moments"):
         """
         Initialize the video orchestrator
 
@@ -100,6 +102,7 @@ class VideoOrchestrator:
         self.llm_provider = llm_provider.lower()
         self.custom_prompt_file = custom_prompt_file
         self.use_background = use_background
+        self.mode = mode
         self.title_font_size = TITLE_FONT_SIZES.get(title_font_size, 40)
         self.cover_text_location = cover_text_location
         self.cover_fill_color = cover_fill_color
@@ -131,9 +134,10 @@ class VideoOrchestrator:
                     language=language,
                     debug=self.debug,
                     custom_prompt_file=custom_prompt_file,
-                    max_clips=max_clips
+                    max_clips=max_clips,
+                    mode=mode,
                 )
-                logger.info(f"🧠 Engaging moments analysis: enabled (provider: {self.llm_provider}, language: {language}, background: {'yes' if use_background else 'no'})")
+                logger.info(f"🧠 Engaging moments analysis: enabled (provider: {self.llm_provider}, language: {language}, mode: {mode}, background: {'yes' if use_background else 'no'})")
             except ValueError as e:
                 logger.warning(f"🔑 Engaging moments analysis disabled: {e}")
         elif skip_analysis:
@@ -325,14 +329,18 @@ class VideoOrchestrator:
                 if transcript_result.get('transcript_path'):
                     result.transcript_path = transcript_result['transcript_path']
             
-            # Step 4: Analyze engaging moments (if not skipped and analyzer available)
+            # Step 4: Analyze engaging moments or insights (if not skipped and analyzer available)
             engaging_result = None
             if self.engaging_moments_analyzer and not self.skip_analysis:
-                logger.info("🧠 Step 4: Analyzing engaging moments...")
-                engaging_result = await self._analyze_engaging_moments(result, progress_callback)
+                if self.mode == "insights":
+                    logger.info("💡 Step 4: Extracting insights...")
+                    engaging_result = await self._analyze_insights(result, progress_callback)
+                else:
+                    logger.info("🧠 Step 4: Analyzing engaging moments...")
+                    engaging_result = await self._analyze_engaging_moments(result, progress_callback)
                 result.engaging_moments_analysis = engaging_result
             elif self.skip_analysis:
-                logger.info("🧠 Step 4: Skipping engaging moments analysis (--skip-analysis)")
+                logger.info("🧠 Step 4: Skipping analysis (--skip-analysis)")
                 # Try to find existing analysis file for clip generation
                 engaging_result = self._find_existing_analysis(result)
                 if engaging_result:
@@ -661,7 +669,87 @@ class VideoOrchestrator:
                 'top_moments': None,
                 'total_parts_analyzed': 0
             }
-    
+
+    async def _analyze_insights(self,
+                                result: ProcessingResult,
+                                progress_callback: Optional[Callable[[str, float], None]]) -> Dict[str, Any]:
+        """
+        Extract intellectual insights from transcripts (insights mode).
+
+        Args:
+            result: ProcessingResult with transcript information
+            progress_callback: Progress callback function
+
+        Returns:
+            Dictionary with insights results including both all_insights_file and aggregated_file
+        """
+        try:
+            if progress_callback:
+                progress_callback("Extracting insights...", 50)
+
+            insights_files = []
+
+            if result.was_split and result.transcript_parts:
+                logger.info(f"🔍 Extracting insights from {len(result.transcript_parts)} video part(s)...")
+
+                for i, transcript_path in enumerate(result.transcript_parts):
+                    part_name = f"part{i+1:02d}"
+
+                    part_result = await self.engaging_moments_analyzer.analyze_part_for_insights(
+                        transcript_path, part_name
+                    )
+
+                    transcript_dir = Path(transcript_path).parent
+                    insights_file = transcript_dir / f"insights_{part_name}.json"
+                    await self.engaging_moments_analyzer.save_highlights_to_file(part_result, str(insights_file))
+                    insights_files.append(str(insights_file))
+
+                    if progress_callback:
+                        progress = 50 + (i + 1) * 10 / len(result.transcript_parts)
+                        progress_callback(f"Analyzed part {i+1}/{len(result.transcript_parts)}", progress)
+
+                transcript_dir = Path(result.transcript_parts[0]).parent
+                all_insights = self.engaging_moments_analyzer.collect_all_insights(insights_files)
+
+                # Save all_insights.json (raw insights format for consumers like mindstream)
+                all_insights_file = transcript_dir / "all_insights.json"
+                await self.engaging_moments_analyzer.save_highlights_to_file(all_insights, str(all_insights_file))
+
+                # Save top_engaging_moments.json (ClipGenerator-compatible format)
+                top_moments = insights_to_clip_format(all_insights.get("insights", []))
+                aggregated_file = transcript_dir / "top_engaging_moments.json"
+                await self.engaging_moments_analyzer.save_highlights_to_file(top_moments, str(aggregated_file))
+
+                logger.info(f"💡 {all_insights['total_insights']} insights extracted")
+
+                return {
+                    'insights_files': insights_files,
+                    'all_insights_file': str(all_insights_file),
+                    'aggregated_file': str(aggregated_file),
+                    'insights': all_insights.get("insights", []),
+                    'total_parts_analyzed': len(result.transcript_parts),
+                }
+            else:
+                logger.warning("No transcript available for insights analysis")
+                return {
+                    'insights_files': [],
+                    'all_insights_file': None,
+                    'aggregated_file': None,
+                    'insights': [],
+                    'total_parts_analyzed': 0,
+                }
+
+        except Exception as e:
+            logger.error(f"Error in insights analysis: {e}")
+            return {
+                'error': str(e),
+                'insights_files': [],
+                'all_insights_file': None,
+                'aggregated_file': None,
+                'insights': [],
+                'total_parts_analyzed': 0,
+            }
+
     def process_titles_and_covers(
         self,
         phase1_result: ProcessingResult,

@@ -97,7 +97,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 
 **启动 Streamlit 应用：**
 ```bash
-uv run streamlit run streamlit_app.py
+uv run python -m streamlit run streamlit_app.py
 ```
 
 应用启动后，打开浏览器访问显示的 URL（通常是 `http://localhost:8501`）。

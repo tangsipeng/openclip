@@ -559,16 +559,32 @@ async def find_existing_download(url: str,
             if not video_id:
                 raise Exception("Could not extract video ID from URL")
         
-        # Look for dedicated directory in downloads
-        downloads_dir = output_dir / "downloads"
+        # Look for dedicated directory in downloads.
+        # VideoOrchestrator creates: output_dir/{safe_title}/downloads/{video_id}*/
+        # Fall back to flat: output_dir/downloads/{video_id}*/
         video_dir = None
-        
-        # Find directory that starts with the video ID
-        for dir_path in downloads_dir.glob(f"{video_id}*"):
-            if dir_path.is_dir():
-                video_dir = dir_path
-                break
-        
+
+        VIDEO_EXTS = {'.mp4', '.mkv', '.webm', '.flv'}
+
+        def _find_in_downloads(downloads_dir: Path) -> Optional[Path]:
+            if not downloads_dir.exists():
+                return None
+            if any(f.suffix.lower() in VIDEO_EXTS for f in downloads_dir.iterdir() if f.is_file()):
+                return downloads_dir
+            return None
+
+        # Primary: output_dir/{safe_title}/downloads/{video_id}*/
+        for subdir in output_dir.iterdir():
+            if subdir.is_dir():
+                found = _find_in_downloads(subdir / "downloads")
+                if found:
+                    video_dir = found
+                    break
+
+        # Fallback: output_dir/downloads/{video_id}*/
+        if not video_dir:
+            video_dir = _find_in_downloads(output_dir / "downloads")
+
         if not video_dir:
             raise Exception(f"No existing download directory found for {video_id}")
         
@@ -614,3 +630,23 @@ async def find_existing_download(url: str,
             'video_info': {},
             'subtitle_path': ""
         }
+
+
+def insights_to_clip_format(insights: list) -> dict:
+    """Convert insights list to ClipGenerator's top_engaging_moments format."""
+    moments = []
+    for i, insight in enumerate(insights):
+        moments.append({
+            "rank": i + 1,
+            "title": insight["claim"][:80],
+            "timing": {
+                "video_part": insight.get("video_part", "part01"),
+                "start_time": insight["start_time"],
+                "end_time": insight["end_time"],
+                "duration": insight.get("duration_seconds", 0),
+            },
+            "transcript": insight.get("quote", ""),
+            "engagement_details": {"engagement_level": "high"},
+            "why_engaging": insight.get("claim", ""),
+        })
+    return {"top_engaging_moments": moments}

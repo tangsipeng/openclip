@@ -276,9 +276,17 @@ class YouTubeDownloader:
                     progress = 0
 
                 state['max_progress'] = max(state['max_progress'], progress)
-                speed = d.get('_speed_str', '')
-                eta = d.get('_eta_str', '')
-                status = f"{speed} ETA: {eta}"
+                
+                # Clean up speed and ETA strings to remove Unicode characters
+                speed = d.get('_speed_str', '').strip()
+                eta = d.get('_eta_str', '').strip()
+                
+                # Remove common Unicode characters that don't render well in Streamlit
+                # Keep only ASCII printable characters
+                speed = ''.join(c for c in speed if ord(c) < 128)
+                eta = ''.join(c for c in eta if ord(c) < 128)
+                
+                status = f"Downloading: {speed} ETA: {eta}".strip()
                 progress_callback(status, state['max_progress'])
             elif d['status'] == 'finished':
                 state['max_progress'] = max(state['max_progress'], 95)

@@ -97,7 +97,7 @@ export OPENROUTER_API_KEY=your_api_key_here
 
 **Start Streamlit app:**
 ```bash
-uv run streamlit run streamlit_app.py
+uv run python -m streamlit run streamlit_app.py
 ```
 
 Once the app starts, open your browser and visit the displayed URL (typically `http://localhost:8501`).

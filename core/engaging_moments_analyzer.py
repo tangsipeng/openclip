@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 class EngagingMomentsAnalyzer:
     """Analyzes video transcripts to identify engaging moments using LLM APIs"""
     
-    def __init__(self, api_key: Optional[str] = None, provider: str = "qwen", use_background: bool = False, language: str = "zh", debug: bool = False, custom_prompt_file: Optional[str] = None, max_clips: int = MAX_CLIPS):
+    def __init__(self, api_key: Optional[str] = None, provider: str = "qwen", use_background: bool = False, language: str = "zh", debug: bool = False, custom_prompt_file: Optional[str] = None, max_clips: int = MAX_CLIPS, mode: str = "engaging_moments"):
         """
         Initialize the analyzer
-        
+
         Args:
             api_key: API key for the selected provider (optional, can use env var)
             provider: LLM provider to use ("qwen" or "openrouter")
@@ -31,11 +31,13 @@ class EngagingMomentsAnalyzer:
             language: Language for output ("zh" for Chinese, "en" for English)
             debug: Enable debug mode to export full prompts sent to LLM
             custom_prompt_file: Path to custom prompt file (optional)
+            mode: Analysis mode ("engaging_moments" or "insights")
         """
         self.custom_prompt_file = custom_prompt_file
         self.max_clips = max_clips
+        self.mode = mode
         self.provider = provider.lower()
-        self.prompts_dir = Path("prompts")
+        self.prompts_dir = Path(__file__).parent.parent / "prompts"
         self.use_background = use_background
         self.background_content = None
         self.language = language
@@ -123,6 +125,10 @@ class EngagingMomentsAnalyzer:
         Returns:
             Content of the prompt file
         """
+        # Redirect to insights prompt when in insights mode
+        if self.mode == "insights" and prompt_name == "engaging_moments_part_requirement":
+            prompt_name = "insights_part_requirement"
+
         # Use custom prompt file if specified and this is the part requirement prompt
         if prompt_name == "engaging_moments_part_requirement" and self.custom_prompt_file:
             custom_prompt_path = Path(self.custom_prompt_file)
@@ -261,7 +267,10 @@ class EngagingMomentsAnalyzer:
         prompt_parts.append(prompt_template)
         prompt_parts.append(f"\n\n## Transcript Data for {part_name}\n\n")
         prompt_parts.append(transcript_context)
-        prompt_parts.append("\n\nPlease analyze this transcript and identify engaging moments following the requirements above.")
+        if self.mode == "insights":
+            prompt_parts.append("\n\nPlease analyze this transcript and extract intellectual insights following the requirements above.")
+        else:
+            prompt_parts.append("\n\nPlease analyze this transcript and identify engaging moments following the requirements above.")
 
         return "".join(prompt_parts)
 
@@ -904,6 +913,147 @@ Moment {i}:
             "honorable_mentions": []
         }
     
+    async def analyze_part_for_insights(self, srt_path: str, part_name: str) -> Dict[str, Any]:
+        """
+        Analyze a single video part for intellectual insights (insights mode).
+
+        Args:
+            srt_path: Path to SRT file
+            part_name: Name of the video part (e.g., "part01")
+
+        Returns:
+            Dictionary with insights: {"video_part", "insights": [...], "total_insights"}
+        """
+        logger.info(f"💡 Extracting insights from {part_name}...")
+
+        entries = self.parse_srt_file(srt_path)
+        if not entries:
+            logger.warning(f"No entries found in {srt_path}")
+            return self._create_empty_insights_result(part_name)
+
+        analysis_prompt = self.build_part_analysis_prompt(srt_path, part_name)
+        self._export_debug_prompt(analysis_prompt, "insights_analysis", part_name)
+
+        try:
+            response = self.llm_client.simple_chat(analysis_prompt)
+            result = self._extract_and_parse_insights_json(response, part_name, entries)
+        except Exception as e:
+            logger.error(f"Error extracting insights: {e}")
+            result = self._create_empty_insights_result(part_name)
+
+        return result
+
+    def _extract_and_parse_insights_json(self, response: str, part_name: str, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extract and parse insights JSON from LLM response."""
+        # Direct parse
+        try:
+            result = json.loads(response.strip())
+            return self._validate_insights_result(result, part_name, entries)
+        except json.JSONDecodeError:
+            pass
+
+        # Extract from code block
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group(1))
+                return self._validate_insights_result(result, part_name, entries)
+            except json.JSONDecodeError:
+                pass
+
+        # Fallback: find any JSON object
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group())
+                return self._validate_insights_result(result, part_name, entries)
+            except json.JSONDecodeError:
+                pass
+
+        logger.error(f"Could not parse insights JSON for {part_name}")
+        return self._create_empty_insights_result(part_name)
+
+    def _validate_insights_result(self, result: Dict[str, Any], part_name: str, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Validate and clean insights result."""
+        if 'insights' not in result:
+            result['insights'] = []
+
+        result['video_part'] = part_name
+
+        valid_insights = []
+        for insight in result['insights']:
+            if self._validate_insight(insight, entries):
+                valid_insights.append(insight)
+
+        result['insights'] = valid_insights
+        result['total_insights'] = len(valid_insights)
+        return result
+
+    def _validate_insight(self, insight: Dict[str, Any], entries: List[Dict[str, Any]]) -> bool:
+        """Validate a single insight has required fields and valid timestamps."""
+        required = ['claim', 'start_time', 'end_time']
+        for field in required:
+            if not insight.get(field):
+                logger.warning(f"Insight missing required field: {field}")
+                return False
+
+        try:
+            start = self.time_to_seconds(insight['start_time'])
+            end = self.time_to_seconds(insight['end_time'])
+            duration = end - start
+            if duration < 30 or duration > 180:
+                logger.warning(f"Insight duration out of range ({duration}s): {insight['claim'][:60]}")
+                return False
+            insight['duration_seconds'] = int(duration)
+        except Exception as e:
+            logger.warning(f"Invalid insight timestamps: {e}")
+            return False
+
+        if 'quote' not in insight:
+            insight['quote'] = ''
+        if 'topic' not in insight:
+            insight['topic'] = 'general'
+
+        return True
+
+    def collect_all_insights(self, insights_files: List[str]) -> Dict[str, Any]:
+        """
+        Merge insights from multiple part files into a single result (no LLM call).
+
+        Args:
+            insights_files: List of paths to insights JSON files (one per part)
+
+        Returns:
+            Dictionary with all insights combined: {"insights": [...], "total_insights"}
+        """
+        all_insights = []
+        for file_path in insights_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                part_name = data.get('video_part', 'unknown')
+                for insight in data.get('insights', []):
+                    insight['video_part'] = part_name
+                    all_insights.append(insight)
+            except Exception as e:
+                logger.error(f"Error loading insights file {file_path}: {e}")
+
+        logger.info(f"Collected {len(all_insights)} insights from {len(insights_files)} part(s)")
+        return {
+            "insights": all_insights,
+            "total_insights": len(all_insights),
+            "analysis_timestamp": datetime.now().isoformat() + 'Z',
+        }
+
+    def _create_empty_insights_result(self, part_name: str) -> Dict[str, Any]:
+        """Create empty result for insights mode."""
+        return {
+            "video_part": part_name,
+            "insights": [],
+            "total_insights": 0,
+            "analysis_timestamp": datetime.now().isoformat() + 'Z',
+        }
+
     async def save_highlights_to_file(self, highlights: Dict[str, Any], output_path: str):
         """Save highlights analysis to JSON file"""
         try:
