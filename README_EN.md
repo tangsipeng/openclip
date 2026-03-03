@@ -12,7 +12,10 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
 
 ## 📢 News
 
-- **2026-03-01**: 
+- **2026-03-04**:
+  - Added [subtitle burning](#subtitle-burning) — use `--burn-subtitles` to hard-burn SRT subtitles into clip videos; optionally add `--subtitle-translation "Simplified Chinese"` to burn bilingual subtitles (requires ffmpeg with libass)
+  - Switched OpenRouter default model from openrouter/free to stepfun/step-3.5-flash:free
+- **2026-03-01**:
   - Streamlit interface now supports [background job processing and concurrent video processing](#concurrent-processing)
   - Added [speaker identification (Preview)](#speaker-identification) — use `--speaker-references` to automatically label speakers by name in transcripts for interviews, panels, and podcasts
   - Improved AI prompts to reduce timestamp format confusion (e.g., `00:01:55` vs `01:55:00`)
@@ -36,6 +39,7 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
 - **Speaker Identification** (Preview): automatically identifies who is speaking and labels transcripts with real names — great for interviews, panels, debates, and podcasts
 - **AI Analysis**: Identifies engaging moments based on content, interaction, and entertainment value
 - **Clip Generation**: Extracts the most engaging moments as standalone video clips, automatically generating subtitle files, titles, and cover images
+- **Subtitle Burning** (optional): Hard-burns SRT subtitles into the video frame; optionally translates to a target language via Qwen and burns both tracks as bilingual subtitles
 - **Background Context**: Optionally add background information (e.g., streamer names) for better analysis
 - **Triple Interface Support**: Streamlit web interface, Agent Skills, and command-line interface for different user needs
 - **Agent Skills**: Built-in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [TRAE](https://www.trae.ai/) agent skills for processing videos with natural language
@@ -50,9 +54,18 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
   - Ubuntu: `sudo apt install ffmpeg`
   - Windows: Download from [ffmpeg.org](https://ffmpeg.org)
 
+  <details>
+  <summary>Need bilingual subtitle burning? Click for libass-enabled install instructions</summary>
+
+  The default installs above do not include libass:
+  - macOS: `brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg` (replaces existing ffmpeg)
+  - Ubuntu: `sudo add-apt-repository ppa:savoury1/ffmpeg4 && sudo apt install ffmpeg`
+  - Windows: Download the **full** build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
+  </details>
+
 - **LLM API Key** (choose one)
   - **Qwen API Key** - Get your key from [Alibaba Cloud](https://dashscope.aliyun.com/) (uses qwen3.5-flash model by default)
-  - **OpenRouter API Key** - Get your key from [OpenRouter](https://openrouter.ai/) (uses openrouter/free model by default)
+  - **OpenRouter API Key** - Get your key from [OpenRouter](https://openrouter.ai/) (uses stepfun/step-3.5-flash:free model by default)
 
 - **Firefox Browser** (optional) - For more stable Bilibili video downloads
 - **HuggingFace Token** (optional, for speaker identification) - Get from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and accept the [pyannote model agreement](https://huggingface.co/pyannote/speaker-diarization-community-1)
@@ -210,6 +223,31 @@ uv run python video_orchestrator.py --speaker-references references/ "VIDEO_URL_
 
 </details>
 
+<a id="subtitle-burning"></a>
+<details>
+<summary>🔤 Subtitle Burning (Optional)</summary>
+
+Hard-burns SRT subtitle files into the video frame so subtitles are always visible regardless of the player. Supports burning the original SRT only, or translating via Qwen and burning both tracks as bilingual subtitles. Speaker tags (e.g. `[Sam Altman]`) are automatically stripped from the on-screen display.
+
+**Prerequisite: ffmpeg must include libass** (see install instructions above)
+
+**Burn original subtitles only:**
+```bash
+uv run python video_orchestrator.py --burn-subtitles "VIDEO_URL"
+```
+
+**Burn original + translated subtitles:**
+```bash
+uv run python video_orchestrator.py \
+  --burn-subtitles \
+  --subtitle-translation "Simplified Chinese" \
+  "VIDEO_URL"
+```
+
+Output goes to `clips_post_processed/`. The original language appears at the bottom, the translation appears just above it.
+
+</details>
+
 ## 📖 CLI Arguments
 
 | Argument | Description | Default |
@@ -234,6 +272,8 @@ uv run python video_orchestrator.py --speaker-references references/ "VIDEO_URL_
 | `--skip-clips` | Don't generate clips | Off |
 | `--add-titles` | Add artistic titles to clips | Off |
 | `--skip-cover` | Don't generate cover images | Off |
+| `--burn-subtitles` | Hard-burn SRT subtitles into clips, output to `clips_post_processed/` (requires ffmpeg with libass) | Off |
+| `--subtitle-translation` | Translate subtitles to this language before burning (e.g. `"Simplified Chinese"`); requires `--burn-subtitles` | None |
 | `-f`, `--filename` | Custom output filename template | None |
 | `-v`, `--verbose` | Enable verbose logging | Off |
 | `--debug` | Enable debug mode (export full LLM prompts) | Off |
@@ -289,15 +329,18 @@ After processing, the output directory is structured as follows:
 
 ```
 processed_videos/{video_name}/
-├── downloads/            # Original video, subtitles, and metadata
-├── splits/               # Split parts and AI analysis results
-├── clips/                # Generated highlight clips, subtitles, and summary
+├── downloads/                # Original video, subtitles, and metadata
+├── splits/                   # Split parts and AI analysis results
+├── clips/                    # Generated highlight clips, subtitles, and summary
 │   ├── rank_01_xxx.mp4
 │   ├── rank_01_xxx.srt
 │   └── engaging_moments_summary.md
-└── clips_with_titles/    # Final clips with artistic titles and cover images
+├── clips_with_titles/        # Clips with artistic titles and cover images (--add-titles)
+│   ├── rank_01_xxx.mp4
+│   └── cover_rank_01_xxx.jpg
+└── clips_post_processed/     # Subtitle-burned clips (--burn-subtitles)
     ├── rank_01_xxx.mp4
-    └── cover_rank_01_xxx.jpg
+    └── ...
 ```
 
 ## 🎨 Customization
@@ -350,7 +393,9 @@ Aggregate Top 5 Moments
     ↓
 Generate Clips
     ↓
-Add Artistic Titles
+Post-processing (optional)
+  ├── Add Artistic Titles (--add-titles)
+  └── Burn Subtitles (--burn-subtitles [--subtitle-translation LANG])
     ↓
 Generate Cover Images
     ↓

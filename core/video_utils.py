@@ -36,7 +36,7 @@ class ProcessingResult:
         self.error_message = ""
         self.engaging_moments_analysis = {}  # Results from engaging moments analysis
         self.clip_generation = {}  # Results from clip generation
-        self.title_addition = {}  # Results from title addition
+        self.post_processing = {}  # Results from post-processing (titles and/or subtitles)
         self.cover_generation = {}  # Results from cover image generation
 
 
@@ -117,21 +117,18 @@ class ResultsFormatter:
                 error = clip_gen.get('error', 'Unknown error')
                 print(f"\n🎬 CLIP GENERATION: Failed - {error}")
         
-        # Display title addition results
-        if result.title_addition:
-            title_add = result.title_addition
-            if title_add.get('success'):
-                print(f"\n🎨 TITLE ADDITION:")
-                print(f"   Titles added: {title_add.get('successful_clips', 0)}/{title_add.get('total_clips', 0)}")
-                print(f"   Title style: {title_add.get('title_style', 'N/A')}")
-                print(f"   Output directory: {title_add.get('output_dir', 'N/A')}")
-                if title_add.get('processed_clips'):
-                    print(f"   Processed clips:")
-                    for clip in title_add['processed_clips']:
-                        print(f"     • {clip.get('filename', 'N/A')}")
+        # Display post-processing results (titles and/or subtitles)
+        if result.post_processing:
+            pp = result.post_processing
+            if pp.get('success'):
+                print(f"\n✨ POST-PROCESSING:")
+                print(f"   Clips processed: {pp.get('successful_clips', 0)}/{pp.get('total_clips', 0)}")
+                print(f"   Output directory: {pp.get('output_dir', 'N/A')}")
+                if pp.get('title_style'):
+                    print(f"   Title style: {pp.get('title_style', 'N/A')}")
             else:
-                error = title_add.get('error', 'Unknown error')
-                print(f"\n🎨 TITLE ADDITION: Failed - {error}")
+                error = pp.get('error', 'Unknown error')
+                print(f"\n✨ POST-PROCESSING: Failed - {error}")
         
         # Display cover generation results
         if result.cover_generation:

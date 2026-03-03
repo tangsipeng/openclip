@@ -106,11 +106,14 @@ class OpenRouterAPIClient:
         
         messages = [OpenRouterMessage(role="user", content=prompt)]
         response = self.chat_completion(messages, model=model)
-        
+
         try:
-            return response["choices"][0]["message"]["content"]
+            content = response["choices"][0]["message"]["content"]
         except KeyError:
             raise Exception(f"Unexpected response format: {response}")
+        if content is None:
+            raise Exception(f"Model returned null content (possible content filter or empty response). Response: {response}")
+        return content
     
     def conversation_chat(
         self,

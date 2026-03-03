@@ -12,7 +12,10 @@
 
 ## 📢 最新动态
 
-- **2026-03-01**: 
+- **2026-03-04**:
+  - 新增[字幕烧录功能](#subtitle-burning) — 使用 `--burn-subtitles` 将 SRT 字幕直接烧录到剪辑视频中；可选 `--subtitle-translation "Simplified Chinese"` 同时烧录中英双语字幕（需要带 libass 的 ffmpeg）
+  - OpenRouter 默认模型从 openrouter/free 切换至 stepfun/step-3.5-flash:free
+- **2026-03-01**:
   - Streamlit 界面支持[后台任务处理和并发处理多个视频](#concurrent-processing)
   - 新增[说话人识别功能（预览版）](#speaker-identification)— 使用 `--speaker-references` 为访谈/座谈/播客视频自动标注说话人姓名
   - 优化 AI 提示词，减少时间戳格式混淆（如 `00:01:55` vs `01:55:00`）
@@ -36,6 +39,7 @@
 - **说话人识别**（预览版）：自动识别谁在说话，将真实姓名标注到字幕中，适合访谈、座谈、辩论和播客
 - **AI 分析**：基于内容、互动和娱乐价值识别精彩时刻
 - **剪辑生成**：提取最精彩时刻为独立视频剪辑，自动生成字幕文件、标题和封面图片
+- **字幕烧录**（可选）：将 SRT 字幕硬烧到视频画面中，可选通过 Qwen 翻译成目标语言后烧录双语字幕
 - **背景上下文**：可选的添加背景信息（如主播姓名等）以获得更好的分析
 - **三界面支持**：Streamlit 网页界面，Agent Skills 和命令行界面，满足不同用户需求
 - **Agent Skills**：内置 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [TRAE](https://www.trae.ai/) agent skill，用自然语言即可处理视频
@@ -50,9 +54,18 @@
   - Ubuntu: `sudo apt install ffmpeg`
   - Windows: 从 [ffmpeg.org](https://ffmpeg.org) 下载
 
+  <details>
+  <summary>需要双语字幕烧录？点击查看带 libass 的安装方式</summary>
+
+  默认安装通常不包含 libass：
+  - macOS: `brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg`（替换已有的 ffmpeg）
+  - Ubuntu: `sudo add-apt-repository ppa:savoury1/ffmpeg4 && sudo apt install ffmpeg`
+  - Windows: 从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 **full** 版本
+  </details>
+
 - **LLM API Key**（选择其一）
   - **Qwen API Key** - 从[阿里云](https://dashscope.aliyun.com/)获取密钥（默认使用 qwen3.5-flash 模型）
-  - **OpenRouter API Key** - 从[OpenRouter](https://openrouter.ai/)获取密钥（默认使用 openrouter/free 模型）
+  - **OpenRouter API Key** - 从[OpenRouter](https://openrouter.ai/)获取密钥（默认使用 stepfun/step-3.5-flash:free 模型）
 
 - **Firefox 浏览器** (可选) - 使用浏览器 Cookie 让Bilibili 视频下载更稳定
 - **HuggingFace Token** (可选，用于说话人识别) - 从 [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) 获取，并接受 [pyannote 模型协议](https://huggingface.co/pyannote/speaker-diarization-community-1)
@@ -210,6 +223,31 @@ uv run python video_orchestrator.py --speaker-references references/ "VIDEO_URL_
 
 </details>
 
+<a id="subtitle-burning"></a>
+<details>
+<summary>🔤 字幕烧录（可选）</summary>
+
+将 SRT 字幕文件硬烧到视频画面中（即使没有字幕播放器也能看到字幕）。支持原始字幕烧录，或通过 Qwen 翻译后同时烧录双语字幕。说话人标签（如 `[Sam Altman]`）会自动从画面中移除。
+
+**前提：ffmpeg 需包含 libass**（详见上方安装说明）
+
+**仅烧录原始字幕：**
+```bash
+uv run python video_orchestrator.py --burn-subtitles "VIDEO_URL"
+```
+
+**烧录原始 + 中文翻译字幕：**
+```bash
+uv run python video_orchestrator.py \
+  --burn-subtitles \
+  --subtitle-translation "Simplified Chinese" \
+  "VIDEO_URL"
+```
+
+输出文件在 `clips_post_processed/` 目录，英文字幕显示在底部，中文字幕显示在英文上方。
+
+</details>
+
 ## 📖 命令行参数
 
 | 参数 | 说明 | 默认值 |
@@ -234,6 +272,8 @@ uv run python video_orchestrator.py --speaker-references references/ "VIDEO_URL_
 | `--skip-clips` | 不生成剪辑 | 关 |
 | `--add-titles` | 添加艺术标题到剪辑 | 关 |
 | `--skip-cover` | 不生成封面图片 | 关 |
+| `--burn-subtitles` | 将 SRT 字幕烧录到视频中，输出到 `clips_post_processed/`（需要带 libass 的 ffmpeg） | 关 |
+| `--subtitle-translation` | 翻译字幕到指定语言后烧录（例如 `"Simplified Chinese"`），需同时开启 `--burn-subtitles` | 无 |
 | `-f`, `--filename` | 自定义输出文件名模板 | 无 |
 | `-v`, `--verbose` | 开启详细日志 | 关 |
 | `--debug` | 开启调试模式（导出完整 LLM 提示词） | 关 |
@@ -289,15 +329,18 @@ uv run python video_orchestrator.py --skip-download --title-style crystal_ice "V
 
 ```
 processed_videos/{video_name}/
-├── downloads/            # 原始视频、字幕和元数据
-├── splits/               # 分割片段和 AI 分析结果
-├── clips/                # 生成的精彩剪辑、字幕和摘要
+├── downloads/                # 原始视频、字幕和元数据
+├── splits/                   # 分割片段和 AI 分析结果
+├── clips/                    # 生成的精彩剪辑、字幕和摘要
 │   ├── rank_01_xxx.mp4
 │   ├── rank_01_xxx.srt
 │   └── engaging_moments_summary.md
-└── clips_with_titles/    # 带艺术标题的最终剪辑和封面图片
+├── clips_with_titles/        # 带艺术标题的最终剪辑和封面图片（--add-titles）
+│   ├── rank_01_xxx.mp4
+│   └── cover_rank_01_xxx.jpg
+└── clips_post_processed/     # 烧录字幕后的剪辑（--burn-subtitles）
     ├── rank_01_xxx.mp4
-    └── cover_rank_01_xxx.jpg
+    └── ...
 ```
 
 ## 🎨 自定义
@@ -350,7 +393,9 @@ AI 分析（每个片段）
     ↓
 生成剪辑
     ↓
-添加艺术标题
+后期处理（可选）
+  ├── 添加艺术标题 (--add-titles)
+  └── 烧录字幕 (--burn-subtitles [--subtitle-translation LANG])
     ↓
 生成封面图片
     ↓

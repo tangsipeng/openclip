@@ -346,10 +346,10 @@ def display_results(result):
                                     st.video(str(clip_path), width=450)
                                     st.caption(f"**{clip.get('title', 'Untitled')}**")
         
-        # Display title info
-        if result.title_addition and result.title_addition.get('success'):
-            titles = result.title_addition
-            with st.expander("🎨 Clips with Titles"):
+        # Display post-processing info (titles and/or subtitles)
+        if result.post_processing and result.post_processing.get('success'):
+            titles = result.post_processing
+            with st.expander("✨ Post-Processed Clips"):
                 st.write(f"Added titles to {titles.get('total_clips', 0)} clips")
                 if titles.get('processed_clips'):
                     output_dir = Path(titles.get('output_dir', ''))
@@ -937,7 +937,7 @@ def process_video_worker(job, progress_callback):
         'transcript_source': getattr(result, 'transcript_source', None),
         'engaging_moments_analysis': getattr(result, 'engaging_moments_analysis', None),
         'clip_generation': getattr(result, 'clip_generation', None),
-        'title_addition': getattr(result, 'title_addition', None),
+        'post_processing': getattr(result, 'post_processing', None),
         'cover_generation': getattr(result, 'cover_generation', None),
     }
 
@@ -1003,7 +1003,7 @@ def _finalize_results(result):
             'transcript_source': getattr(result, 'transcript_source', None),
             'engaging_moments_analysis': getattr(result, 'engaging_moments_analysis', None),
             'clip_generation': getattr(result, 'clip_generation', None),
-            'title_addition': getattr(result, 'title_addition', None),
+            'post_processing': getattr(result, 'post_processing', None),
             'cover_generation': getattr(result, 'cover_generation', None),
         }
     

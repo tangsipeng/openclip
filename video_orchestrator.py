@@ -23,6 +23,7 @@ from core.engaging_moments_analyzer import EngagingMomentsAnalyzer
 from core.insights_analyzer import InsightsAnalyzer
 from core.clip_generator import ClipGenerator
 from core.title_adder import TitleAdder, TITLE_FONT_SIZES
+from core.subtitle_burner import SubtitleBurner
 from core.cover_image_generator import CoverImageGenerator, COVER_COLORS
 
 # Import our utilities (including processing result classes)
@@ -69,7 +70,9 @@ class VideoOrchestrator:
                 cover_outline_color: str = "black",
                 enable_diarization: bool = False,
                 speaker_references_dir: Optional[str] = None,
-                mode: str = "engaging_moments"):
+                mode: str = "engaging_moments",
+                burn_subtitles: bool = False,
+                subtitle_translation: str = None):
         """
         Initialize the video orchestrator
 
@@ -156,32 +159,38 @@ class VideoOrchestrator:
         else:
             logger.info(f"🧠 Engaging moments analysis: disabled (no API key for {self.llm_provider})")
         
-        # Initialize clip generation and title adding components
-        # These can work independently if analysis file already exists
+        # Initialize clip generation and post-processing components
         self.generate_clips_enabled = generate_clips
         self.add_titles_enabled = add_titles
         self.title_style = title_style
-        
-        # Initialize clip generation and title adding components
-        # These will be configured with video-specific directories later
-        self.clips_dir = None
-        self.clips_with_titles_dir = None
-        
+
         if self.generate_clips_enabled:
-            # Initialize with temporary dir, will be updated later
             self.clip_generator = ClipGenerator(output_dir=str(self.output_dir))
             logger.info(f"🎬 Clip generation: enabled")
         else:
             self.clip_generator = None
             logger.info("🎬 Clip generation: disabled")
-        
+
         if self.add_titles_enabled:
-            # Initialize with temporary dir, will be updated later
             self.title_adder = TitleAdder(output_dir=str(self.output_dir))
             logger.info(f"🎨 Title adding: enabled (style: {title_style})")
         else:
             self.title_adder = None
             logger.info("🎨 Title adding: disabled")
+
+        if burn_subtitles:
+            self.subtitle_burner = SubtitleBurner(
+                api_key=api_key if subtitle_translation else None,
+                provider=llm_provider,
+            )
+            self.subtitle_translation = subtitle_translation
+            if subtitle_translation:
+                logger.info(f"🌏 Subtitle burning: enabled (original + {subtitle_translation})")
+            else:
+                logger.info("🌏 Subtitle burning: enabled (original only)")
+        else:
+            self.subtitle_burner = None
+            self.subtitle_translation = None
         
         # Initialize cover image generator
         self.generate_cover_enabled = generate_cover
@@ -277,7 +286,7 @@ class VideoOrchestrator:
                 logger.info(f"🔧 Video duration > 20 minutes, splitting required")
                 split_result = await self.video_splitter.split_video_async(
                     result.video_path,
-                    subtitle_path,
+                    subtitle_path if not skip_transcript else "",
                     progress_callback,
                     splits_dir=splits_dir
                 )
@@ -298,7 +307,7 @@ class VideoOrchestrator:
                 result.video_parts = [str(splits_video)]
                 result.video_path = str(splits_video)
 
-                if subtitle_path and Path(subtitle_path).exists():
+                if not skip_transcript and subtitle_path and Path(subtitle_path).exists():
                     sub_file = Path(subtitle_path)
                     # Add _part01 suffix to subtitle filename
                     splits_sub_name = f"{sub_file.stem}_part01{sub_file.suffix}"
@@ -363,9 +372,6 @@ class VideoOrchestrator:
             video_clips_dir = video_root_dir / "clips"
             video_clips_dir.mkdir(parents=True, exist_ok=True)
 
-            video_clips_with_titles_dir = video_root_dir / "clips_with_titles"
-            video_clips_with_titles_dir.mkdir(parents=True, exist_ok=True)
-
             # Initialize video_titles_dir to video_clips_dir as default (for cover generation)
             video_titles_dir = video_clips_dir
 
@@ -398,27 +404,86 @@ class VideoOrchestrator:
                 )
                 result.clip_generation = clip_result
                 
-                # Step 6: Add artistic titles to clips (if enabled)
-                if self.title_adder and clip_result.get('success'):
-                    logger.info("🎨 Step 6: Adding artistic titles to clips...")
-                    
-                    # Create a wrapper callback to map title progress (0-100) to overall progress (80-90)
+                # Step 6: Post-processing (titles and/or subtitles) → clips_post_processed/
+                has_titles    = self.title_adder is not None
+                has_subtitles = self.subtitle_burner is not None
+
+                if (has_titles or has_subtitles) and clip_result.get('success'):
+                    logger.info("✨ Step 6: Post-processing clips...")
+                    if progress_callback:
+                        overall_progress = 80 + (0 * 0.1)
+                        progress_callback("Post-processing clips...", overall_progress)
+
+                    video_clips_post_processed_dir = video_root_dir / "clips_post_processed"
+                    video_clips_post_processed_dir.mkdir(parents=True, exist_ok=True)
+                    source_clips_dir = Path(clip_result['output_dir'])
+
                     def title_progress_callback(status: str, title_progress: float):
                         if progress_callback:
-                            overall_progress = 80 + (title_progress * 0.1)  # Map 0-100 to 80-90
+                            overall_progress = 80 + (title_progress * 0.1)
                             progress_callback(status, overall_progress)
-                    
-                    # Update title adder output dir
-                    self.title_adder.output_dir = video_clips_with_titles_dir
-                    
-                    title_result = self.title_adder.add_titles_to_clips(
-                        clip_result['output_dir'],
-                        engaging_result['aggregated_file'],
-                        self.title_style,
-                        self.title_font_size,
-                        progress_callback=title_progress_callback
-                    )
-                    result.title_addition = title_result
+
+                    if has_titles and has_subtitles:
+                        # Single ffmpeg pass: title overlay + subtitle burn per clip
+                        import json as _json
+                        with open(engaging_result['aggregated_file'], 'r', encoding='utf-8') as f:
+                            _analysis = _json.load(f)
+                        _title_map = {
+                            self.title_adder._sanitize_filename(m['title']): m['title']
+                            for m in _analysis.get('top_engaging_moments', [])
+                        }
+                        ass_tmp_dir = video_clips_post_processed_dir / "_ass_tmp"
+                        ass_tmp_dir.mkdir(exist_ok=True)
+                        successful = 0
+                        total = 0
+                        for mp4 in sorted(source_clips_dir.glob("*.mp4")):
+                            total += 1
+                            srt = mp4.with_suffix(".srt")
+                            ass_path = ass_tmp_dir / mp4.with_suffix(".ass").name
+                            if srt.exists():
+                                self.subtitle_burner.prepare_ass_for_clip(
+                                    srt, ass_path,
+                                    subtitle_translation=self.subtitle_translation,
+                                )
+                            # Derive title from filename (rank_NN_<safe_title>.mp4)
+                            stem_parts = mp4.stem.split("_", 2)
+                            safe_title = stem_parts[2] if len(stem_parts) > 2 else mp4.stem
+                            clip_title = _title_map.get(safe_title, safe_title.replace("_", " "))
+                            out = video_clips_post_processed_dir / mp4.name
+                            ok = self.title_adder._add_artistic_title(
+                                str(mp4), clip_title, str(out),
+                                self.title_style, self.title_font_size,
+                                ass_path=str(ass_path) if ass_path.exists() else None,
+                            )
+                            if ok:
+                                successful += 1
+                        shutil.rmtree(ass_tmp_dir, ignore_errors=True)
+                        result.post_processing = {
+                            "success": successful > 0,
+                            "output_dir": str(video_clips_post_processed_dir),
+                            "total_clips": total,
+                            "successful_clips": successful,
+                            "failed_clips": total - successful,
+                        }
+                        logger.info(f"   {successful}/{total} clips post-processed (title + subtitles)")
+
+                    elif has_subtitles:
+                        subtitle_result = self.subtitle_burner.burn_subtitles_for_clips(
+                            str(source_clips_dir), str(video_clips_post_processed_dir),
+                            subtitle_translation=self.subtitle_translation,
+                        )
+                        result.post_processing = subtitle_result
+
+                    elif has_titles:
+                        self.title_adder.output_dir = video_clips_post_processed_dir
+                        title_result = self.title_adder.add_titles_to_clips(
+                            str(source_clips_dir),
+                            engaging_result['aggregated_file'],
+                            self.title_style,
+                            self.title_font_size,
+                            progress_callback=title_progress_callback,
+                        )
+                        result.post_processing = title_result
             elif self.clip_generator and not engaging_result:
                 logger.warning("⚠️  Clip generation enabled but no analysis file found")
             
@@ -805,8 +870,6 @@ class VideoOrchestrator:
             video_root_dir = self.output_dir / safe_video_name
 
             video_clips_dir = video_root_dir / "clips"
-            video_clips_with_titles_dir = video_root_dir / "clips_with_titles"
-            video_clips_with_titles_dir.mkdir(parents=True, exist_ok=True)
 
             # Filter analysis file to only include selected ranks
             with open(engaging_result['aggregated_file'], 'r', encoding='utf-8') as f:
@@ -834,7 +897,9 @@ class VideoOrchestrator:
                         overall = 10 + (title_progress * 0.6)  # Map 0-100 to 10-70
                         progress_callback(status, overall)
 
-                self.title_adder.output_dir = video_clips_with_titles_dir
+                video_clips_post_processed_dir = video_root_dir / "clips_post_processed"
+                video_clips_post_processed_dir.mkdir(parents=True, exist_ok=True)
+                self.title_adder.output_dir = video_clips_post_processed_dir
                 title_result = self.title_adder.add_titles_to_clips(
                     str(video_clips_dir),
                     str(filtered_file),
@@ -842,7 +907,7 @@ class VideoOrchestrator:
                     self.title_font_size,
                     progress_callback=title_progress_wrapper
                 )
-                result.title_addition = title_result
+                result.post_processing = title_result
 
             # Step 7: Generate cover images (if enabled)
             if self.cover_generator:
@@ -1067,6 +1132,13 @@ Note: Set QWEN_API_KEY or OPENROUTER_API_KEY environment variable based on your 
                        help='Directory of reference audio clips for speaker name mapping '
                             '(e.g. references/Host.wav). Filename stem becomes the speaker name. '
                             'Enables diarization. Requires: uv sync --extra speakers, HUGGINGFACE_TOKEN.')
+    parser.add_argument('--burn-subtitles', action='store_true',
+                       help='Burn the clip SRT file as subtitles directly into the video. '
+                            'Output goes to clips_post_processed/. Requires ffmpeg with libass.')
+    parser.add_argument('--subtitle-translation', metavar='LANG',
+                       help='Translate subtitles to this language before burning '
+                            '(e.g. "Simplified Chinese"). Both original and translated tracks are burned. '
+                            'Requires --burn-subtitles and QWEN_API_KEY.')
     args = parser.parse_args()
 
     if args.verbose:
@@ -1105,6 +1177,8 @@ Note: Set QWEN_API_KEY or OPENROUTER_API_KEY environment variable based on your 
         cover_outline_color=parse_rgb_color(args.cover_outline_color),
         enable_diarization=args.speaker_references is not None,
         speaker_references_dir=args.speaker_references,
+        burn_subtitles=args.burn_subtitles,
+        subtitle_translation=args.subtitle_translation,
     )
     
     def progress_callback(status: str, progress: float):

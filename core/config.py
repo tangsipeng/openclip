@@ -24,7 +24,7 @@ LLM_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1/chat/completions",
-        "default_model": "openrouter/free",
+        "default_model": "stepfun/step-3.5-flash:free",
         "default_params": {
             "max_tokens": 8192,
             "temperature": 0.7,

@@ -4,6 +4,7 @@ Title Adder - Add artistic titles to video clips
 """
 import json
 import logging
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import re
@@ -563,63 +564,73 @@ class TitleAdder:
         return title.strip('_')
     
     def _add_artistic_title(self, input_video: str, title: str,
-                           output_video: str, title_style: str, font_size: int = 40) -> bool:
-        """Add artistic title overlay to video"""
+                           output_video: str, title_style: str, font_size: int = 40,
+                           ass_path: Optional[str] = None) -> bool:
+        """
+        Add artistic title overlay to video using a single ffmpeg pass.
+
+        Layout: 120px black top bar (title) | original video | 60px black bottom bar.
+        When ass_path is provided, subtitles are burned in the same ffmpeg pass.
+        """
+        import os
+        import tempfile
+        import numpy as np
+        from PIL import Image
+
         try:
-            video = VideoFileClip(input_video)
-            
-            # Calculate dimensions
-            original_width = video.w
-            original_height = video.h
-            top_bar_height = 120
-            bottom_bar_height = 60
-            new_height = original_height + top_bar_height + bottom_bar_height
-            
-            # Create black background
-            black_bg = ColorClip(
-                size=(original_width, new_height),
-                color=(0, 0, 0),
-                duration=video.duration
-            )
-            
-            # Position video
-            video_positioned = video.with_position(('center', top_bar_height))
-            
-            # Create artistic text
+            # 1. Generate title image via existing PIL renderer (unchanged)
             artistic_img = self.renderer.create_artistic_text(
                 title,
                 font_size=font_size,
-                style=title_style
+                style=title_style,
             )
-            
-            # Position title
-            title_y_position = (top_bar_height - artistic_img.shape[0]) // 2
-            artistic_clip = ImageClip(artistic_img, duration=video.duration).with_position(
-                ('center', title_y_position)
-            )
-            
-            # Composite
-            final_video = CompositeVideoClip([black_bg, video_positioned, artistic_clip])
-            
-            # Write output
-            final_video.write_videofile(
-                output_video,
-                codec='libx264',
-                audio_codec='aac',
-                fps=24,
-                preset='ultrafast',
-                threads=4,
-                logger=None  # Suppress moviepy logs
-            )
-            
-            # Cleanup
-            video.close()
-            final_video.close()
-            artistic_clip.close()
-            black_bg.close()
-            
-            return True
-            
+            img_pil = Image.fromarray(artistic_img.astype(np.uint8))
+
+            # 2. Save title as a temporary PNG
+            tmp_fd, title_png = tempfile.mkstemp(suffix=".png")
+            os.close(tmp_fd)
+            img_pil.save(title_png)
+
+            try:
+                # 3. Build ffmpeg filter_complex
+                # Layout: pad adds 120px top + 60px bottom black bars,
+                # then overlay centres the title PNG in the top bar.
+                # If an ASS file is supplied, burn it in the same pass.
+                overlay_x = "(main_w-overlay_w)/2"
+                overlay_y = "(120-overlay_h)/2"
+
+                if ass_path:
+                    filter_complex = (
+                        f"[0:v]pad=iw:ih+180:0:120:black[v1];"
+                        f"[v1][1:v]overlay=x={overlay_x}:y={overlay_y}[v2];"
+                        f"[v2]ass={ass_path}[out]"
+                    )
+                else:
+                    filter_complex = (
+                        f"[0:v]pad=iw:ih+180:0:120:black[v1];"
+                        f"[v1][1:v]overlay=x={overlay_x}:y={overlay_y}[out]"
+                    )
+
+                cmd = [
+                    "ffmpeg",
+                    "-i", input_video,
+                    "-i", title_png,
+                    "-filter_complex", filter_complex,
+                    "-map", "[out]",
+                    "-map", "0:a",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-c:a", "aac",
+                    "-y", output_video,
+                ]
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode != 0:
+                    logger.error(f"ffmpeg title error for {Path(input_video).name}: {r.stderr[-500:]}")
+                return r.returncode == 0
+
+            finally:
+                os.unlink(title_png)
+
         except Exception as e:
             logger.error(f"Error adding title: {e}")
             return False
