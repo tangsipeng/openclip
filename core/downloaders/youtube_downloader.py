@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Callable, Any
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -66,14 +67,10 @@ class YouTubeDownloader:
         self.quality = quality
         self.browser = browser.lower() if browser else None
         
-        # Base yt-dlp options - keep it simple and let yt-dlp handle YouTube
+        # Base yt-dlp options for video download (no subtitle flags — subtitles are
+        # fetched in a separate pass so a subtitle 429 never aborts the video download)
         self.base_opts = {
             'format': self._get_format_selector(),
-            'writesubtitles': True,
-            'writeautomaticsub': True,
-            'subtitleslangs': ['en'],
-            # 'subtitleslangs': ['en', 'zh-Hans', 'zh-Hant', 'zh', 'ja', 'ko'],
-            'subtitlesformat': 'srt',
             'extractflat': False,
             'writethumbnail': True,
             'writeinfojson': True,
@@ -82,6 +79,18 @@ class YouTubeDownloader:
             'noplaylist': True,
             'retries': 10,
             'fragment_retries': 10,
+        }
+
+        # Subtitle-only opts used in the second pass (skip_download=True)
+        self.subtitle_opts = {
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en'],
+            'subtitlesformat': 'srt',
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': False,
         }
         
         # Add browser cookies if specified (helps with restricted content)
@@ -206,50 +215,55 @@ class YouTubeDownloader:
         # Create dedicated directory for this video
         video_dir = self.create_video_directory(video_info)
         
+        outtmpl = str(video_dir / custom_filename) if custom_filename else str(video_dir / f'{safe_title}.%(ext)s')
+
+        loop = asyncio.get_event_loop()
+
+        # --- Pass 1: download video ---
         download_opts = self.base_opts.copy()
-        
-        if custom_filename:
-            download_opts['outtmpl'] = str(video_dir / custom_filename)
-        else:
-            # Use simple filename since we're already in a dedicated directory
-            download_opts['outtmpl'] = str(video_dir / f'{safe_title}.%(ext)s')
-        
-        # Add progress hook
+        download_opts['outtmpl'] = outtmpl
         if progress_callback:
             download_opts['progress_hooks'] = [self._create_progress_hook(progress_callback)]
-        
+
         try:
             logger.info(f"Starting download: {video_info.title}")
             logger.info(f"Download directory: {video_dir}")
             if progress_callback:
                 progress_callback("Starting download...", 0)
-            
-            # Download video
-            loop = asyncio.get_event_loop()
+
             await loop.run_in_executor(None, self._download_sync, url, download_opts)
-            
-            # Find downloaded files in the video directory
-            video_path = self._find_downloaded_video_in_dir(video_dir, safe_title)
-            subtitle_path = self._find_downloaded_subtitle_in_dir(video_dir, safe_title)
-            
-            if progress_callback:
-                progress_callback("Download completed", 100)
-            
-            result = {
-                'video_path': str(video_path) if video_path else '',
-                'subtitle_path': str(subtitle_path) if subtitle_path else '',
-                'video_info': video_info.to_dict()
-            }
-            
-            logger.info(f"Download completed: {video_info.title}")
-            return result
-            
+
         except Exception as e:
             error_msg = f"Download failed: {str(e)}"
             logger.error(error_msg)
             if progress_callback:
                 progress_callback(error_msg, 0)
             raise
+
+        # --- Pass 2: download subtitles (failure is non-fatal → Whisper fallback) ---
+        sub_opts = self.subtitle_opts.copy()
+        sub_opts['outtmpl'] = outtmpl
+        if self.browser:
+            sub_opts['cookiesfrombrowser'] = self.base_opts.get('cookiesfrombrowser')
+
+        try:
+            await loop.run_in_executor(None, self._download_sync, url, sub_opts)
+        except DownloadError as e:
+            logger.warning(f"Subtitle download failed (will fall back to Whisper): {e}")
+
+        # Find downloaded files
+        video_path = self._find_downloaded_video_in_dir(video_dir, safe_title)
+        subtitle_path = self._find_downloaded_subtitle_in_dir(video_dir, safe_title)
+
+        if progress_callback:
+            progress_callback("Download completed", 100)
+
+        logger.info(f"Download completed: {video_info.title}")
+        return {
+            'video_path': str(video_path) if video_path else '',
+            'subtitle_path': str(subtitle_path) if subtitle_path else '',
+            'video_info': video_info.to_dict()
+        }
     
     def _download_sync(self, url: str, ydl_opts: Dict[str, Any]):
         """Synchronous download execution"""
