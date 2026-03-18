@@ -287,13 +287,21 @@ class SubtitleBurner:
             cmd = [
                 "ffmpeg",
                 "-i", str(mp4.resolve()),
-                "-vf", f"ass={tmp_ass}",
+                "-vf", f"ass={tmp_ass.name}",
                 "-c:a", "copy",
                 "-y", str(output.resolve()),
             ]
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            r = subprocess.run(
+                cmd,
+                cwd=str(tmp_ass.parent),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
             if r.returncode != 0:
-                logger.error(f"ffmpeg subtitle error for {mp4.name}: {r.stderr[-500:]}")
+                stderr_tail = (r.stderr or "")[-500:]
+                logger.error(f"ffmpeg subtitle error for {mp4.name}: {stderr_tail}")
             return r.returncode == 0
         finally:
             tmp_ass.unlink(missing_ok=True)

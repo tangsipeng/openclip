@@ -637,9 +637,16 @@ class TitleAdder:
                     "-c:a", "aac",
                     "-y", output_video,
                 ]
-                r = subprocess.run(cmd, capture_output=True, text=True)
+                r = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
                 if r.returncode != 0:
-                    logger.error(f"ffmpeg title error for {Path(input_video).name}: {r.stderr[-500:]}")
+                    stderr_tail = (r.stderr or "")[-500:]
+                    logger.error(f"ffmpeg title error for {Path(input_video).name}: {stderr_tail}")
                 return r.returncode == 0
 
             finally:
