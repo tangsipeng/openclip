@@ -17,6 +17,8 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
 
 ## 📢 News
 
+- **2026-03-25**:
+  - Added [Cookie Guidance](#cookie-guidance) and a clearer Streamlit `Cookie Mode`; for remote videos, try `No cookies` → `Browser cookies` → `Cookies file` in that order
 - **2026-03-24**:
   - Added [GLM (ZhipuAI)](https://bigmodel.cn) and [MiniMax](https://minimaxi.com) as LLM providers — now supports Qwen, OpenRouter, GLM, and MiniMax
 - **2026-03-11**:
@@ -70,6 +72,9 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
   - macOS: `brew install ffmpeg`
   - Ubuntu: `sudo apt install ffmpeg`
   - Windows: Download from [ffmpeg.org](https://ffmpeg.org)
+- **Deno or Node** (optional, may be needed for YouTube downloads) - Improves YouTube download reliability. OpenClip auto-detects and uses them; if you mainly process YouTube videos, especially with cookies, installing one is recommended
+  - For installation instructions, see yt-dlp's official EJS guide:
+    [Step 1: Install a supported JavaScript runtime](https://github.com/yt-dlp/yt-dlp/wiki/EJS#step-1-install-a-supported-javascript-runtime)
 
   <details>
   <summary>Need bilingual subtitle burning? Click for libass-enabled install instructions</summary>
@@ -276,6 +281,41 @@ Output goes to `clips_post_processed/`. The original language appears at the bot
 
 </details>
 
+<a id="cookie-guidance"></a>
+## 🍪 Cookie Guidance
+
+Remote video downloads sometimes hit login checks, bot protection, or platform restrictions. OpenClip supports three modes:
+
+- `No cookies`: try the simplest public-access path first
+- `Browser cookies`: use the logged-in session from your local browser
+- `Cookies file`: use an exported Netscape-format `cookies.txt`
+
+**Recommended order:**
+
+1. Start with `No cookies`
+2. If you see login/auth/bot-check errors such as `not a bot` or `LOGIN_REQUIRED`, try `Browser cookies`
+3. If browser cookies are still unreliable, try `Cookies file`
+
+**YouTube note:**
+
+- For YouTube, if you use cookies, you will very likely also need a JavaScript runtime such as Deno or Node; otherwise yt-dlp may expose incomplete formats or fail to download. See [Prerequisites](#-prerequisites) for installation guidance
+
+**CLI equivalents:**
+
+1. Pass no cookie-related flags
+2. Use `--browser chrome` (or the browser you actually use)
+3. Use `--cookies /path/to/cookies.txt`
+
+**Note:**
+
+- Only use cookies when account access is actually needed, keep download volume/rate reasonable, or consider using a throwaway account
+
+**Exporting a cookies file:**
+
+- If you need to generate a `cookies.txt`, see the official yt-dlp guide:
+  [Exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)
+- Although the guide is titled for YouTube, the exported Netscape-format `cookies.txt` also works for both YouTube and Bilibili in OpenClip
+
 ## 📖 CLI Arguments
 
 | Argument | Description | Default |
@@ -284,7 +324,7 @@ Output goes to `clips_post_processed/`. The original language appears at the bot
 | `-o`, `--output` | Custom output directory | `processed_videos` |
 | `--llm-provider` | LLM provider (`qwen`, `openrouter`, `glm`, or `minimax`) | `qwen` |
 | `--language` | Output language (`zh` or `en`) | `zh` |
-| `--browser` | Browser for cookies (`chrome`/`firefox`/`edge`/`safari`) | `firefox` |
+| `--browser` | Browser for cookies (`chrome`/`firefox`/`edge`/`safari`); only used when explicitly provided | None |
 | `--cookies` | Path to a Netscape-format `cookies.txt` file; takes precedence over `--browser` | None |
 | `--js-runtime` | JavaScript runtime strategy for YouTube downloads only (`auto`/`deno`/`node`/`none`) | `auto` |
 | `--js-runtime-path` | Path to the JavaScript runtime executable for YouTube only (advanced) | None |
@@ -439,9 +479,10 @@ Output Ready!
 
 ### Download fails
 **Cause**: 
-- yt-dlp version is too old. Try updating dependencies: `uv sync`.
-- Cookie/authentication issues. Try `--browser firefox`, or pass an exported cookies file via `--cookies /path/to/cookies.txt`.
-- If YouTube only exposes image/storyboard formats or reports `Requested format is not available`, OpenClip will now auto-try `deno`/`node` as a JS runtime. If needed, install one and pass `--js-runtime node --js-runtime-path /path/to/node` explicitly.
+- yt-dlp is too old. YouTube changes frequently, so try refreshing it with `uv lock --upgrade-package yt-dlp && uv sync`.
+- Cookie/authentication issues. In Streamlit, switch `Cookie Mode` to `Browser cookies` or `Cookies file`. In CLI, use `--browser chrome` or `--cookies /path/to/cookies.txt`.
+- YouTube reports `Sign in to confirm you're not a bot` or `LOGIN_REQUIRED`. This usually means cookies are required for this request.
+- If YouTube only exposes image/storyboard formats or reports `Requested format is not available`, OpenClip will auto-try `deno`/`node` as a JS runtime. If needed, install one and pass `--js-runtime node --js-runtime-path /path/to/node` explicitly.
 
 ### No clips generated
 **Cause**: Missing API key or analysis failed. Check `echo $QWEN_API_KEY`, `echo $OPENROUTER_API_KEY`, `echo $GLM_API_KEY`, or `echo $MINIMAX_API_KEY`, and verify analysis files exist.

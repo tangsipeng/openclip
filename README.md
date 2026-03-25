@@ -17,6 +17,8 @@
 
 ## 📢 最新动态
 
+- **2026-03-25**:
+  - 新增 [Cookie 使用建议](#cookie-guidance) 与更清晰的 Streamlit `Cookie 模式`；远程视频下载可按 `不使用 cookies` → `浏览器 cookies` → `Cookies 文件` 的顺序尝试
 - **2026-03-24**:
   - 新增 [GLM（智谱AI）](https://bigmodel.cn) 和 [MiniMax](https://minimaxi.com) 作为 LLM 提供商，现支持 Qwen、OpenRouter、GLM、MiniMax 四个提供商
 - **2026-03-11**:
@@ -86,7 +88,10 @@
   - **GLM API Key** - 从[智谱AI](https://open.bigmodel.cn/)获取密钥（默认使用 glm-4.7 模型）
   - **MiniMax API Key** - 从[MiniMax](https://platform.minimaxi.com/)获取密钥（默认使用 MiniMax-M2.7 模型）
 
-- **Firefox 浏览器** (可选) - 使用浏览器 Cookie 让Bilibili 视频下载更稳定
+- **Chrome / Firefox / Edge / Safari 浏览器**（可选）- 当你选择使用浏览器 Cookie 时，可用于远程视频下载身份验证
+- **Deno 或 Node**（可选，YouTube 下载可能会需要）- 提升 YouTube 下载稳定性。OpenClip 会自动检测并使用；如果你主要处理 YouTube，尤其是需要 cookies 的情况，建议安装
+  - 安装方式可参考 yt-dlp 官方 EJS 文档：
+    [Step 1: Install a supported JavaScript runtime](https://github.com/yt-dlp/yt-dlp/wiki/EJS#step-1-install-a-supported-javascript-runtime)
 - **HuggingFace Token** (可选，用于说话人识别) - 从 [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) 获取，并接受 [pyannote 模型协议](https://huggingface.co/pyannote/speaker-diarization-community-1)
 
 ### 由 uv 自动管理
@@ -276,6 +281,41 @@ uv run python video_orchestrator.py \
 
 </details>
 
+<a id="cookie-guidance"></a>
+## 🍪 Cookie 使用建议
+
+远程视频下载有时会遇到登录验证、风控或平台限制。OpenClip 支持三种模式：
+
+- `不使用 cookies`：先尝试最简单的公开访问方式
+- `浏览器 cookies`：使用本机浏览器中的登录态
+- `Cookies 文件`：使用导出的 Netscape 格式 `cookies.txt`
+
+**推荐尝试顺序：**
+
+1. 先试 `不使用 cookies`
+2. 如果报登录、风控、`not a bot`、`LOGIN_REQUIRED` 等错误，再试 `浏览器 cookies`
+3. 如果浏览器 cookies 仍不稳定，再试 `Cookies 文件`
+
+**YouTube 特别说明：**
+
+- 对于 YouTube，如果你使用 cookies，则很可能还需要安装 Deno 或 Node 这样的 JavaScript 运行时，否则可能只拿到不完整格式，甚至下载失败。安装说明可见[前置要求](#-前置要求)
+
+**CLI 对应方式：**
+
+1. 不传任何 cookie 参数
+2. 使用 `--browser chrome`（或你实际使用的浏览器）
+3. 使用 `--cookies /path/to/cookies.txt`
+
+**注意：**
+
+- 仅在确实需要登录态访问内容时再使用 cookies，并尽量控制下载频率，或使用备用账号
+
+**导出 Cookies 文件：**
+
+- 如果你需要生成 `cookies.txt`，可参考 yt-dlp 官方教程：
+  [Exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)
+- 虽然教程标题写的是 YouTube，但在 OpenClip 中，导出的 Netscape 格式 `cookies.txt` 同样可用于 YouTube 和 Bilibili
+
 ## 📖 命令行参数
 
 | 参数 | 说明 | 默认值 |
@@ -284,7 +324,7 @@ uv run python video_orchestrator.py \
 | `-o`, `--output` | 自定义输出目录 | `processed_videos` |
 | `--llm-provider` | LLM 提供商（`qwen`、`openrouter`、`glm` 或 `minimax`） | `qwen` |
 | `--language` | 输出语言（`zh` 或 `en`） | `zh` |
-| `--browser` | 用于 cookie 的浏览器（`chrome`/`firefox`/`edge`/`safari`） | `firefox` |
+| `--browser` | 用于 cookie 的浏览器（`chrome`/`firefox`/`edge`/`safari`）；仅在显式提供时使用 | 无 |
 | `--cookies` | Netscape 格式 `cookies.txt` 文件路径；提供后优先于 `--browser` | 无 |
 | `--js-runtime` | 仅用于 YouTube 下载的 JavaScript 运行时策略（`auto`/`deno`/`node`/`none`） | `auto` |
 | `--js-runtime-path` | 仅用于 YouTube 下载的 JavaScript 运行时可执行文件路径（高级选项） | 无 |
@@ -439,8 +479,9 @@ AI 分析（每个片段）
 
 ### 下载失败
 **原因**：
-- yt-dlp版本过旧。尝试更新依赖版本：`uv sync`。
-- Cookie/身份验证问题。可尝试 `--browser firefox` 切换浏览器，或通过 `--cookies /path/to/cookies.txt` 提供导出的 cookies 文件。
+- yt-dlp 版本过旧。YouTube 变化较快，建议更新依赖版本：`uv lock --upgrade-package yt-dlp && uv sync`。
+- Cookie / 身份验证问题。Streamlit 中可将 `Cookie 模式` 切换为 `浏览器 cookies` 或 `Cookies 文件`；CLI 可使用 `--browser chrome` 或 `--cookies /path/to/cookies.txt`。
+- YouTube 报 `Sign in to confirm you're not a bot` 或 `LOGIN_REQUIRED`。这通常表示当前请求需要 cookies 才能继续下载。
 - YouTube 只显示图片格式或报 `Requested format is not available`。OpenClip 会自动尝试 `deno` / `node` 作为 JS 运行时；如果仍失败，请安装其中之一，或用 `--js-runtime node --js-runtime-path /path/to/node` 显式指定。
 
 ### 未生成剪辑
