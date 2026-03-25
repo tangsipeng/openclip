@@ -26,7 +26,7 @@ class VideoDownloader:
         self,
         output_dir: str = "downloads",
         quality: str = "best",
-        browser: str = "firefox",
+        browser: Optional[str] = None,
         cookies: Optional[str] = None,
         js_runtime: Optional[str] = "auto",
         js_runtime_path: Optional[str] = None,
@@ -37,7 +37,7 @@ class VideoDownloader:
         Args:
             output_dir: Base directory to save downloaded videos
             quality: Video quality preference (best, worst, or specific format)
-            browser: Browser for cookie extraction when no cookie file is provided
+            browser: Browser for cookie extraction when explicitly provided and no cookie file is provided
             cookies: Optional path to a Netscape-format cookies.txt file
             js_runtime: JavaScript runtime strategy for YouTube ('auto', 'deno', 'node', 'none')
             js_runtime_path: Optional explicit path to the JS runtime executable

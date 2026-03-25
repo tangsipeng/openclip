@@ -51,7 +51,7 @@ class VideoOrchestrator:
                 output_dir: str = "processed_videos",
                 max_duration_minutes: float = MAX_DURATION_MINUTES,
                 whisper_model: str = WHISPER_MODEL,
-                browser: str = "firefox",
+                browser: Optional[str] = None,
                 cookies: Optional[str] = None,
                 js_runtime: Optional[str] = "auto",
                 js_runtime_path: Optional[str] = None,
@@ -84,7 +84,7 @@ class VideoOrchestrator:
             output_dir: Directory for all processed outputs
             max_duration_minutes: Maximum duration before splitting (default 20 minutes)
             whisper_model: Whisper model to use for transcript generation
-            browser: Browser for cookie extraction
+            browser: Browser for cookie extraction when explicitly provided
             cookies: Optional path to a Netscape-format cookies.txt file
             js_runtime: JavaScript runtime strategy for YouTube ('auto', 'deno', 'node', 'none')
             js_runtime_path: Optional explicit path to the JS runtime executable
@@ -1133,9 +1133,9 @@ Note: Set QWEN_API_KEY or OPENROUTER_API_KEY environment variable based on your 
     parser.add_argument('--title-font-size', default='medium',
                        choices=list(TITLE_FONT_SIZES.keys()),
                        help=f'Font size for artistic titles (default: medium, {TITLE_FONT_SIZES["medium"]}px). Options: {", ".join(TITLE_FONT_SIZES.keys())}')
-    parser.add_argument('--browser', default='firefox',
+    parser.add_argument('--browser',
                        choices=['chrome', 'firefox', 'edge', 'safari'],
-                       help='Browser for cookie extraction (default: firefox)')
+                       help='Browser for cookie extraction. Only used when explicitly provided.')
     parser.add_argument('--cookies', metavar='FILE',
                        help='Path to a Netscape-format cookies.txt file. Overrides --browser when provided.')
     parser.add_argument('--js-runtime', default='auto',
