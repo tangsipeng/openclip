@@ -221,8 +221,9 @@ class JobManager:
         if not job:
             logger.error(f"Job {job_id} not found")
             return
-        
-        if job.status != JobStatus.PROCESSING:
+
+        # allow cancel for pending jobs also
+        if job.status != JobStatus.PROCESSING and job.status != JobStatus.PENDING:
             logger.warning(f"Job {job_id} is not processing (status: {job.status.value})")
             return
         
