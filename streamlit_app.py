@@ -898,6 +898,7 @@ def process_video_worker(job, progress_callback):
         subtitle_translation=options.get('subtitle_translation') or None,
         mode=options.get('mode', 'engaging_moments'),
         user_intent=options.get('user_intent') or None,
+        snap_to_sentence_boundary=options.get('snap_to_sentence_boundary', False),
     )
     
     result = asyncio.run(orchestrator.process_video(

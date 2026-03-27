@@ -16,17 +16,29 @@ logger = logging.getLogger(__name__)
 
 class ClipGenerator:
     """Generate video clips from engaging moments analysis"""
-    
-    def __init__(self, output_dir: str = "engaging_clips"):
+
+    # Sentence-ending punctuation for boundary snapping
+    SENTENCE_ENDINGS = set('.!?。？！')
+
+    def __init__(self, output_dir: str = "engaging_clips",
+                 snap_to_sentence_boundary: bool = False,
+                 snap_max_extension: float = 8.0):
         """
         Initialize clip generator
-        
+
         Args:
             output_dir: Directory to save generated clips
+            snap_to_sentence_boundary: When True, extend clip end times to the
+                nearest sentence boundary in the SRT to avoid mid-sentence cuts
+            snap_max_extension: Maximum seconds to extend when snapping (default 5.0)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self.snap_to_sentence_boundary = snap_to_sentence_boundary
+        self.snap_max_extension = snap_max_extension
         logger.info(f"📁 Clip output directory: {self.output_dir}")
+        if self.snap_to_sentence_boundary:
+            logger.info(f"🔧 Sentence boundary snapping: enabled (max extension: {snap_max_extension}s)")
     
     def generate_clips_from_analysis(self, 
                                     analysis_file: str,
@@ -80,15 +92,27 @@ class ClipGenerator:
                 output_filename = f"rank_{rank:02d}_{safe_title}.mp4"
                 output_path = self.output_dir / output_filename
                 
+                # Snap end_time to sentence boundary if enabled
+                effective_end_time = end_time
+                srt_segments = None
+                if self.snap_to_sentence_boundary:
+                    subtitle_file = self._find_subtitle_file(video_part, subtitle_dir)
+                    if subtitle_file:
+                        srt_segments = self._parse_srt_file(subtitle_file)
+                        if srt_segments:
+                            end_seconds = float(self._time_to_seconds(end_time))
+                            snapped = self._snap_end_time(end_seconds, srt_segments)
+                            effective_end_time = self._seconds_to_ffmpeg_time(snapped)
+
                 # Create the clip
                 success = self._create_clip(
                     input_video,
                     start_time,
-                    end_time,
+                    effective_end_time,
                     str(output_path),
                     title
                 )
-                
+
                 if success:
                     # Generate subtitle file for the clip
                     subtitle_filename = f"rank_{rank:02d}_{safe_title}.srt"
@@ -96,7 +120,7 @@ class ClipGenerator:
                     subtitle_generated = self._extract_subtitle_for_clip(
                         video_part,
                         start_time,
-                        end_time,
+                        effective_end_time,
                         str(subtitle_path),
                         subtitle_dir
                     )
@@ -249,9 +273,9 @@ class ClipGenerator:
                 logger.info(f"⚠ No subtitle segments found in {subtitle_file}")
                 return False
             
-            # Convert clip time range to seconds
-            clip_start = self._time_to_seconds(start_time)
-            clip_end = self._time_to_seconds(end_time)
+            # Convert clip time range to seconds (supports both HH:MM:SS and HH:MM:SS.mmm)
+            clip_start = self._parse_time_flexible(start_time)
+            clip_end = self._parse_time_flexible(end_time)
             
             # Filter segments that overlap with clip time range
             clip_segments = []
@@ -298,21 +322,95 @@ class ClipGenerator:
         elif len(parts) == 3:  # HH:MM:SS
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
         return 0
-    
-    def _create_clip(self, input_video: str, start_time: str, 
+
+    def _parse_time_flexible(self, time_str: str) -> float:
+        """Parse time string in HH:MM:SS, MM:SS, or HH:MM:SS.mmm format to seconds."""
+        # Handle HH:MM:SS.mmm (ffmpeg-style with dot)
+        if '.' in time_str:
+            main, ms = time_str.rsplit('.', 1)
+            parts = main.split(':')
+            base = sum(int(p) * m for p, m in zip(parts, [3600, 60, 1][-len(parts):]))
+            return base + int(ms) / 1000.0
+        # Handle HH:MM:SS or MM:SS
+        parts = time_str.split(':')
+        return float(sum(int(p) * m for p, m in zip(parts, [3600, 60, 1][-len(parts):])))
+
+    def _seconds_to_ffmpeg_time(self, seconds: float) -> str:
+        """Convert seconds (float) to ffmpeg-compatible time string HH:MM:SS.mmm"""
+        ms = int(round((seconds % 1) * 1000))
+        total_s = int(seconds)
+        h = total_s // 3600
+        m = (total_s % 3600) // 60
+        s = total_s % 60
+        return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+    def _snap_end_time(self, end_time_seconds: float,
+                       srt_segments: List[Dict]) -> float:
+        """
+        Snap end_time forward to the nearest SRT segment that ends with
+        sentence-ending punctuation.
+
+        Args:
+            end_time_seconds: Current end time in seconds
+            srt_segments: Parsed SRT segments with 'end_time' and 'text'
+
+        Returns:
+            Adjusted end time in seconds (float, ms precision).
+            Returns original if no suitable boundary found within max_extension.
+        """
+        limit = end_time_seconds + self.snap_max_extension
+        nearest_seg_end = None
+
+        for seg in srt_segments:
+            seg_end = self._time_to_seconds_srt(seg['end_time'])
+            if seg_end < end_time_seconds:
+                continue
+            if seg_end > limit:
+                break
+            # Track the nearest SRT segment for ms precision fallback
+            if nearest_seg_end is None:
+                nearest_seg_end = seg_end
+            text = seg['text'].rstrip()
+            if text and text[-1] in self.SENTENCE_ENDINGS:
+                if seg_end != end_time_seconds:
+                    logger.info(
+                        f"  🔧 Snapped end_time: {self._seconds_to_ffmpeg_time(end_time_seconds)}"
+                        f" → {self._seconds_to_ffmpeg_time(seg_end)}"
+                        f" (+{seg_end - end_time_seconds:.1f}s)"
+                        f" | ends with: \"{text[-40:]}\""
+                    )
+                return seg_end
+
+        # No sentence boundary found — still snap to nearest SRT segment for ms precision
+        if nearest_seg_end is not None and nearest_seg_end != end_time_seconds:
+            logger.info(
+                f"  ⚠ No sentence boundary within {self.snap_max_extension}s,"
+                f" snapping to nearest SRT segment for ms precision:"
+                f" {self._seconds_to_ffmpeg_time(end_time_seconds)}"
+                f" → {self._seconds_to_ffmpeg_time(nearest_seg_end)}"
+            )
+            return nearest_seg_end
+
+        return end_time_seconds
+
+    def _create_clip(self, input_video: str, start_time: str,
                     end_time: str, output_path: str, title: str) -> bool:
-        """Create a video clip using ffmpeg"""
+        """Create a video clip using ffmpeg.
+
+        start_time/end_time may be HH:MM:SS or HH:MM:SS.mmm (when snapped).
+        """
         try:
-            start_seconds = self._time_to_seconds(start_time)
-            end_seconds = self._time_to_seconds(end_time)
+            # Support both HH:MM:SS and HH:MM:SS.mmm formats
+            start_seconds = self._parse_time_flexible(start_time)
+            end_seconds = self._parse_time_flexible(end_time)
             duration = end_seconds - start_seconds
-            
+
             # Use ffmpeg to extract clip
             cmd = [
                 'ffmpeg',
                 '-ss', start_time,
                 '-i', input_video,
-                '-t', str(duration),
+                '-t', f"{duration:.3f}",
                 '-c:v', 'libx264',
                 '-c:a', 'aac',
                 '-vf', 'setpts=PTS-STARTPTS',
