@@ -17,6 +17,8 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
 
 ## 📢 News
 
+- **2026-03-30**:
+  - Added default-on clip boundary refinement to make highlight clip starts and ends feel more natural and reduce abrupt cuts
 - **2026-03-25**:
   - Added [Cookie Guidance](#cookie-guidance) and a clearer Streamlit `Cookie Mode`; for remote videos, try `No cookies` → `Browser cookies` → `Cookies file` in that order
 - **2026-03-24**:
@@ -29,13 +31,13 @@ Give it a video URL or local file, and it handles the full pipeline: **Download 
   - **Git History Notice**: A mistaken attempt to reduce GitHub repo size caused the git history to be rewritten. Sorry for the inconvenience. Existing users need to run `git fetch origin && git reset --hard origin/main` to sync with the latest history
   - Added [subtitle burning](#subtitle-burning) — use `--burn-subtitles` to hard-burn SRT subtitles into clip videos; optionally add `--subtitle-translation "Simplified Chinese"` to burn bilingual subtitles (requires ffmpeg with libass)
   - Switched OpenRouter default model from openrouter/free to stepfun/step-3.5-flash:free
+<details>
+<summary>Older updates</summary>
+
 - **2026-03-01**:
   - Streamlit interface now supports [background job processing and concurrent video processing](#concurrent-processing)
   - Added [speaker identification (Preview)](#speaker-identification) — use `--speaker-references` to automatically label speakers by name in transcripts for interviews, panels, and podcasts
   - Improved AI prompts to reduce timestamp format confusion (e.g., `00:01:55` vs `01:55:00`)
-<details>
-<summary>Older updates</summary>
-
 - **2025-02-26**:
   - Switched default Qwen model from legacy qwen-turbo to qwen3.5-flash
   - Improved AI prompts to reduce timestamp hallucination and enhance title quality
@@ -330,6 +332,7 @@ Remote video downloads sometimes hit login checks, bot protection, or platform r
 | `--js-runtime-path` | Path to the JavaScript runtime executable for YouTube only (advanced) | None |
 | `--force-whisper` | Force Whisper transcription (ignore platform subtitles) | Off |
 | `--use-background` | Use background info for analysis | Off |
+| `--normalize-boundaries` / `--no-normalize-boundaries` | Align clip starts and ends to nearby subtitle boundaries during clip generation; prefers sentence boundaries first and subtitle-gap pauses second. Enabled by default, disable with `--no-normalize-boundaries` | On |
 | `--user-intent` | Natural language description of what you're looking for (e.g. `"moments about AI risks"`); steers LLM clip selection and ranking | None |
 | `--max-clips` | Maximum number of highlight clips | `5` |
 | `--title-style` | Title artistic style (see list below) | `fire_flame` |

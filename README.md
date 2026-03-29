@@ -17,6 +17,8 @@
 
 ## 📢 最新动态
 
+- **2026-03-30**:
+  - 新增默认开启的剪辑边界修正，目标是让高光片段的开始和结束更自然，减少突兀截断
 - **2026-03-25**:
   - 新增 [Cookie 使用建议](#cookie-guidance) 与更清晰的 Streamlit `Cookie 模式`；远程视频下载可按 `不使用 cookies` → `浏览器 cookies` → `Cookies 文件` 的顺序尝试
 - **2026-03-24**:
@@ -29,13 +31,13 @@
   - **Git 历史变更通知**：错误的减小 GitHub size 的尝试导致 Git 历史被重写，对现有用户造成不便，深感抱歉。已有克隆用户需运行 `git fetch origin && git reset --hard origin/main` 以同步最新历史
   - 新增[字幕烧录功能](#subtitle-burning) — 使用 `--burn-subtitles` 将 SRT 字幕直接烧录到剪辑视频中；可选 `--subtitle-translation "Simplified Chinese"` 同时烧录中英双语字幕（需要带 libass 的 ffmpeg）
   - OpenRouter 默认模型从 openrouter/free 切换至 stepfun/step-3.5-flash:free
+<details>
+<summary>更早的更新</summary>
+
 - **2026-03-01**:
   - Streamlit 界面支持[后台任务处理和并发处理多个视频](#concurrent-processing)
   - 新增[说话人识别功能（预览版）](#speaker-identification)— 使用 `--speaker-references` 为访谈/座谈/播客视频自动标注说话人姓名
   - 优化 AI 提示词，减少时间戳格式混淆（如 `00:01:55` vs `01:55:00`）
-<details>
-<summary>更早的更新</summary>
-
 - **2025-02-26**:
   - 默认 Qwen 模型从旧版 qwen-turbo 切换至 qwen3.5-flash
   - 优化 AI 提示词，减少时间戳幻觉，提升标题质量
@@ -330,6 +332,7 @@ uv run python video_orchestrator.py \
 | `--js-runtime-path` | 仅用于 YouTube 下载的 JavaScript 运行时可执行文件路径（高级选项） | 无 |
 | `--force-whisper` | 强制使用 Whisper 转录（忽略平台字幕） | 关 |
 | `--use-background` | 使用背景信息辅助分析 | 关 |
+| `--normalize-boundaries` / `--no-normalize-boundaries` | 剪辑生成时将开始/结束时间对齐到附近字幕边界；优先句子边界，其次字幕间停顿。默认开启，可用 `--no-normalize-boundaries` 关闭 | 开 |
 | `--user-intent` | 用自然语言描述关注重点（如 `"关于 AI 风险的观点"`），引导 AI 优先选取相关片段 | 无 |
 | `--max-clips` | 最大精彩片段数量 | `5` |
 | `--title-style` | Banner 标题艺术风格（见下方列表） | `fire_flame` |
