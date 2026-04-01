@@ -447,6 +447,7 @@ class TitleAdder:
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self.language = language
         self.renderer = ArtisticTextRenderer(language=language)
         logger.info(f"📁 Title output directory: {self.output_dir}")
     

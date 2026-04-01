@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 class ParaformerTranscriptProcessor:
     """Bridge to the external funasr-paraformer project."""
 
+    REQUIRED_MODULES = ("numpy", "soundfile", "torch", "funasr", "modelscope")
+
     def __init__(
         self,
         project_dir: str = PARAFORMER_PROJECT_DIR,
@@ -29,7 +31,9 @@ class ParaformerTranscriptProcessor:
     ):
         self.project_dir = Path(project_dir).expanduser().resolve()
         self.device = device
-        self.current_python_bin = Path(sys.executable).resolve()
+        # Keep the venv entrypoint path instead of resolving symlinks. Executing
+        # the resolved base interpreter bypasses the virtualenv site-packages.
+        self.current_python_bin = Path(sys.executable)
         self.project_python_candidates = [
             self.project_dir / ".venv" / "bin" / "python",
             self.project_dir / ".venv" / "Scripts" / "python.exe",
@@ -41,17 +45,65 @@ class ParaformerTranscriptProcessor:
     def _resolve_python_bin(self) -> Path:
         for candidate in self.project_python_candidates:
             if candidate.exists():
-                return candidate.resolve()
+                missing_modules = self._missing_modules_for_python(candidate)
+                if not missing_modules:
+                    return candidate
+                logger.warning(
+                    "Ignoring Paraformer helper Python %s because required modules are missing: %s",
+                    candidate,
+                    ", ".join(missing_modules),
+                )
         return self.current_python_bin
 
-    @staticmethod
-    def _missing_current_env_modules() -> list[str]:
-        required_modules = ("funasr", "modelscope", "soundfile")
+    @classmethod
+    def _missing_current_env_modules(cls) -> list[str]:
         return [
             module_name
-            for module_name in required_modules
+            for module_name in cls.REQUIRED_MODULES
             if importlib.util.find_spec(module_name) is None
         ]
+
+    def _missing_modules_for_python(self, python_bin: Path) -> list[str]:
+        python_bin = Path(python_bin)
+        if self._same_python_bin(python_bin, self.current_python_bin):
+            return self._missing_current_env_modules()
+
+        probe_code = (
+            "import importlib.util, json; "
+            f"mods = {list(self.REQUIRED_MODULES)!r}; "
+            "missing = [m for m in mods if importlib.util.find_spec(m) is None]; "
+            "print(json.dumps(missing))"
+        )
+
+        try:
+            proc = subprocess.run(
+                [str(python_bin), "-c", probe_code],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except (FileNotFoundError, OSError):
+            return list(self.REQUIRED_MODULES)
+
+        if proc.returncode != 0:
+            return list(self.REQUIRED_MODULES)
+
+        try:
+            missing_modules = json.loads((proc.stdout or "").strip() or "[]")
+        except json.JSONDecodeError:
+            return list(self.REQUIRED_MODULES)
+
+        if isinstance(missing_modules, list):
+            return [str(module_name) for module_name in missing_modules]
+        return list(self.REQUIRED_MODULES)
+
+    @staticmethod
+    def _same_python_bin(lhs: Path, rhs: Path) -> bool:
+        try:
+            return lhs == rhs or lhs.samefile(rhs)
+        except OSError:
+            return lhs == rhs
 
     def availability_error(self) -> str | None:
         if not self.project_dir.exists():
@@ -65,14 +117,18 @@ class ParaformerTranscriptProcessor:
             return f"Paraformer JSON→SRT script not found: {self.json_to_srt_script}"
         if not self.python_bin.exists():
             return f"Paraformer Python not found: {self.python_bin}"
-        if self.python_bin == self.current_python_bin:
-            missing_modules = self._missing_current_env_modules()
-            if missing_modules:
-                missing = ", ".join(missing_modules)
+        missing_modules = self._missing_modules_for_python(self.python_bin)
+        if missing_modules:
+            missing = ", ".join(missing_modules)
+            if self._same_python_bin(self.python_bin, self.current_python_bin):
                 return (
                     f"Paraformer dependencies missing in the current environment: {missing}. "
                     "Run `uv sync --extra paraformer` or provide a helper checkout with its own .venv."
                 )
+            return (
+                f"Paraformer dependencies missing in helper environment {self.python_bin}: {missing}. "
+                "Repair that helper .venv or remove it so OpenClip can fall back to the current repo environment."
+            )
         return None
 
     def is_available(self) -> bool:

@@ -37,6 +37,35 @@ def test_availability_error_suggests_paraformer_extra_when_current_env_deps_miss
     assert "funasr, modelscope" in error
 
 
+def test_resolve_python_bin_falls_back_when_helper_env_is_broken(tmp_path, monkeypatch):
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir(parents=True)
+    (tools_dir / "transcribe_long_audio.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    (tools_dir / "funasr_json_to_srt.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    helper_python = tmp_path / ".venv" / "bin" / "python"
+    helper_python.parent.mkdir(parents=True)
+    helper_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    def fake_missing_modules(self, python_bin):
+        if Path(python_bin) == helper_python.resolve():
+            return ["numpy"]
+        if Path(python_bin) == self.current_python_bin:
+            return []
+        return []
+
+    monkeypatch.setattr(
+        ParaformerTranscriptProcessor,
+        "_missing_modules_for_python",
+        fake_missing_modules,
+    )
+
+    processor = ParaformerTranscriptProcessor(project_dir=tmp_path)
+
+    assert processor.python_bin == processor.current_python_bin
+    assert processor.availability_error() is None
+
+
 def test_find_output_json_prefers_stem_matched_file(tmp_path):
     processor = ParaformerTranscriptProcessor(project_dir=tmp_path)
     expected = tmp_path / "clip.json"

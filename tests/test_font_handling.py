@@ -20,3 +20,9 @@ def test_cover_image_generator_requires_cjk_font(monkeypatch):
 
     with pytest.raises(RuntimeError, match="No suitable CJK font found"):
         generator._load_font(48)
+
+
+def test_title_adder_persists_language_for_ass_burn(tmp_path):
+    adder = title_adder.TitleAdder(output_dir=str(tmp_path), language="zh")
+
+    assert adder.language == "zh"

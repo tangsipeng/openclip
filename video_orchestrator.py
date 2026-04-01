@@ -346,7 +346,7 @@ class VideoOrchestrator:
                 result.video_parts = [str(splits_video)]
                 result.video_path = str(splits_video)
 
-                if not skip_transcript and subtitle_path and Path(subtitle_path).exists():
+                if subtitle_path and Path(subtitle_path).exists():
                     sub_file = Path(subtitle_path)
                     # Add _part01 suffix to subtitle filename
                     splits_sub_name = f"{sub_file.stem}_part01{sub_file.suffix}"
