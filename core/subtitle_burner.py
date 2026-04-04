@@ -234,10 +234,17 @@ class SubtitleBurner:
     def build_ass_filter_value(cls, ass_path: str | Path, language: str = "zh") -> str:
         ass_path = Path(ass_path)
         _, font_dir = cls._resolve_ass_font(language)
-        filter_value = f"ass={ass_path}"
+        filter_value = f"ass={cls._escape_ffmpeg_filter_value(ass_path)}"
         if font_dir:
-            filter_value += f":fontsdir={font_dir}"
+            filter_value += f":fontsdir={cls._escape_ffmpeg_filter_value(font_dir)}"
         return filter_value
+
+    @staticmethod
+    def _escape_ffmpeg_filter_value(value: str | Path) -> str:
+        escaped = str(value).replace("\\", "/")
+        for char in (":", "'", "[", "]", ",", ";"):
+            escaped = escaped.replace(char, f"\\{char}")
+        return escaped
 
     # ------------------------------------------------------------------
     # Public API

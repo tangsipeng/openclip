@@ -106,3 +106,15 @@ def test_build_ass_filter_value_omits_fontsdir_when_unavailable(monkeypatch, tmp
     filter_value = SubtitleBurner.build_ass_filter_value(tmp_path / "clip.ass", language="en")
 
     assert filter_value == f"ass={tmp_path / 'clip.ass'}"
+
+
+def test_build_ass_filter_value_escapes_filter_special_chars(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        SubtitleBurner,
+        "_resolve_ass_font",
+        classmethod(lambda cls, language: ("DejaVu Sans", "C:/Windows/Fonts")),
+    )
+
+    filter_value = SubtitleBurner.build_ass_filter_value(tmp_path / "clip.ass", language="en")
+
+    assert "fontsdir=C\\:/Windows/Fonts" in filter_value

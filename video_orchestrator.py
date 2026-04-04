@@ -180,6 +180,11 @@ class VideoOrchestrator:
                     )
                 logger.info(f"🧠 Engaging moments analysis: enabled (provider: {self.llm_provider}, language: {language}, mode: {mode}, background: {'yes' if use_background else 'no'})")
             except ValueError as e:
+                if self.llm_provider == "custom_openai":
+                    raise ValueError(
+                        "Invalid custom_openai analysis configuration. "
+                        f"{e}"
+                    ) from e
                 logger.warning(f"🔑 Engaging moments analysis disabled: {e}")
         elif skip_analysis:
             logger.info("🧠 Engaging moments analysis: skipped (--skip-analysis)")

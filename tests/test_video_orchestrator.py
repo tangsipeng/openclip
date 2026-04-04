@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from video_orchestrator import VideoOrchestrator
 
 
@@ -56,3 +58,12 @@ def test_skip_transcript_uses_existing_local_subtitle_for_single_part_video(tmp_
     assert result.transcript_source == "existing"
     assert result.transcript_parts == [str(expected_subtitle)]
     assert expected_subtitle.exists()
+
+
+def test_custom_openai_requires_model_when_analysis_is_enabled(tmp_path):
+    with pytest.raises(ValueError, match="Invalid custom_openai analysis configuration"):
+        VideoOrchestrator(
+            output_dir=str(tmp_path / "output"),
+            llm_provider="custom_openai",
+            llm_base_url="http://127.0.0.1:8000/v1",
+        )
