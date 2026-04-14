@@ -1,4 +1,9 @@
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
+from PIL import Image, ImageChops
 
 from core.subtitle_burner import SubtitleBurner
 
@@ -118,3 +123,85 @@ def test_build_ass_filter_value_escapes_filter_special_chars(monkeypatch, tmp_pa
     filter_value = SubtitleBurner.build_ass_filter_value(tmp_path / "clip.ass", language="en")
 
     assert "fontsdir=C\\:/Windows/Fonts" in filter_value
+
+
+def test_font_family_from_path_uses_primary_family_name(monkeypatch):
+    class CompletedProcess:
+        returncode = 0
+        stdout = "Heiti TC,黑體-繁,黒体-繁\n"
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: CompletedProcess(),
+    )
+
+    family = SubtitleBurner._font_family_from_path("/System/Library/Fonts/STHeiti Light.ttc")
+
+    assert family == "Heiti TC"
+
+
+def test_generate_preview_image_renders_subtitles(tmp_path):
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("ffmpeg is not installed")
+
+    filters = subprocess.run(
+        [ffmpeg, "-hide_banner", "-filters"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if " ass " not in filters.stdout:
+        pytest.skip("ffmpeg was built without libass support")
+
+    burner = SubtitleBurner()
+    background_path = tmp_path / "background.png"
+    baseline_video_path = tmp_path / "baseline.mp4"
+    baseline_path = tmp_path / "baseline.png"
+    preview_path = tmp_path / "preview.png"
+
+    burner._create_preview_background(background_path)
+    subprocess.run(
+        [
+            ffmpeg,
+            "-loop", "1",
+            "-i", str(background_path),
+            "-t", "2",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            "-y", str(baseline_video_path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    )
+    subprocess.run(
+        [
+            ffmpeg,
+            "-ss", "0.5",
+            "-i", str(baseline_video_path),
+            "-frames:v", "1",
+            "-update", "1",
+            "-y", str(baseline_path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    )
+    ok = burner.generate_preview_image(
+        preview_path,
+        original_text="Preview subtitle",
+    )
+
+    assert ok is True
+    assert baseline_path.exists()
+    assert preview_path.exists()
+    diff = ImageChops.difference(Image.open(baseline_path), Image.open(preview_path))
+    assert diff.getbbox() is not None

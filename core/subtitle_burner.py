@@ -214,7 +214,9 @@ class SubtitleBurner:
             )
             family = (result.stdout or "").strip().splitlines()
             if result.returncode == 0 and family and family[0].strip():
-                return family[0].strip()
+                primary_family = family[0].split(",", 1)[0].strip()
+                if primary_family:
+                    return primary_family
         except (FileNotFoundError, OSError):
             pass
 
@@ -660,30 +662,76 @@ class SubtitleBurner:
         tmp_fd, tmp_ass_str = tempfile.mkstemp(suffix=".ass")
         os.close(tmp_fd)
         tmp_ass = Path(tmp_ass_str)
+        tmp_bg_video = tmp_ass.with_suffix(".mp4")
+        tmp_burned_video = tmp_ass.with_name(f"{tmp_ass.stem}_burned.mp4")
         try:
             tmp_ass.write_bytes(ass.read_bytes())
-            cmd = [
+
+            background_cmd = [
                 "ffmpeg",
                 "-loop", "1",
                 "-i", str(background.resolve()),
-                "-vf", self.build_ass_filter_value(tmp_ass.name, language="zh"),
-                "-frames:v", "1",
-                "-y", str(output.resolve()),
+                "-t", "2",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                "-y", str(tmp_bg_video.resolve()),
             ]
-            r = subprocess.run(
-                cmd,
+            background_result = subprocess.run(
+                background_cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if background_result.returncode != 0:
+                stderr_tail = (background_result.stderr or "")[-500:]
+                logger.error(f"ffmpeg preview background video error: {stderr_tail}")
+                return False
+
+            burn_cmd = [
+                "ffmpeg",
+                "-i", str(tmp_bg_video.resolve()),
+                "-vf", self.build_ass_filter_value(tmp_ass.name, language="zh"),
+                "-pix_fmt", "yuv420p",
+                "-an",
+                "-y", str(tmp_burned_video.resolve()),
+            ]
+            burn_result = subprocess.run(
+                burn_cmd,
                 cwd=str(tmp_ass.parent),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
             )
-            if r.returncode != 0:
-                stderr_tail = (r.stderr or "")[-500:]
+            if burn_result.returncode != 0:
+                stderr_tail = (burn_result.stderr or "")[-500:]
                 logger.error(f"ffmpeg preview subtitle error: {stderr_tail}")
-            return r.returncode == 0
+                return False
+
+            frame_cmd = [
+                "ffmpeg",
+                "-ss", "0.5",
+                "-i", str(tmp_burned_video.resolve()),
+                "-frames:v", "1",
+                "-update", "1",
+                "-y", str(output.resolve()),
+            ]
+            frame_result = subprocess.run(
+                frame_cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if frame_result.returncode != 0:
+                stderr_tail = (frame_result.stderr or "")[-500:]
+                logger.error(f"ffmpeg preview frame extraction error: {stderr_tail}")
+            return frame_result.returncode == 0
         finally:
             tmp_ass.unlink(missing_ok=True)
+            tmp_bg_video.unlink(missing_ok=True)
+            tmp_burned_video.unlink(missing_ok=True)
 
     def _burn_ass(self, mp4: Path, ass: Path, output: Path) -> bool:
         """Run ffmpeg to burn the ASS subtitle file into the video."""
