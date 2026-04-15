@@ -7,6 +7,16 @@ import json
 from pathlib import Path
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Convert FunASR JSON output into an SRT subtitle file."
@@ -15,13 +25,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("output_srt", help="Path to the output SRT file.")
     parser.add_argument(
         "--max-line-length",
-        type=int,
+        type=positive_int,
         default=20,
         help="Soft limit used when wrapping subtitle lines.",
     )
     parser.add_argument(
         "--lines-per-cue",
-        type=int,
+        type=positive_int,
         default=2,
         help="Maximum number of lines per subtitle cue.",
     )
@@ -37,6 +47,9 @@ def srt_timestamp(total_ms: int) -> str:
 
 
 def wrap_text(text: str, max_line_length: int) -> list[str]:
+    if max_line_length <= 0:
+        raise ValueError("max_line_length must be a positive integer")
+
     text = " ".join(text.split())
     if not text:
         return []
@@ -73,6 +86,55 @@ def wrap_text(text: str, max_line_length: int) -> list[str]:
     return [line for line in lines if line]
 
 
+def group_lines_by_limit(lines: list[str], lines_per_cue: int) -> list[list[str]]:
+    return [
+        lines[idx : idx + lines_per_cue]
+        for idx in range(0, len(lines), lines_per_cue)
+    ]
+
+
+def group_lines_evenly(lines: list[str], cue_count: int) -> list[list[str]]:
+    blocks: list[list[str]] = []
+    cursor = 0
+    for idx in range(cue_count):
+        remaining_lines = len(lines) - cursor
+        remaining_cues = cue_count - idx
+        block_size = (remaining_lines + remaining_cues - 1) // remaining_cues
+        blocks.append(lines[cursor : cursor + block_size])
+        cursor += block_size
+    return blocks
+
+
+def allocate_cue_durations(total_duration: int, weights: list[int]) -> list[int]:
+    cue_count = len(weights)
+    if cue_count == 0:
+        return []
+    if total_duration < cue_count:
+        raise ValueError("total_duration must allow at least 1 ms per cue")
+
+    durations = [1] * cue_count
+    remaining_duration = total_duration - cue_count
+    if remaining_duration == 0:
+        return durations
+
+    total_weight = sum(weights)
+    extra_used = 0
+    remainders: list[tuple[int, int]] = []
+    for idx, weight in enumerate(weights):
+        weighted_duration = remaining_duration * weight
+        extra = weighted_duration // total_weight
+        durations[idx] += extra
+        extra_used += extra
+        remainders.append((weighted_duration % total_weight, idx))
+
+    for _, idx in sorted(remainders, key=lambda item: (-item[0], item[1]))[
+        : remaining_duration - extra_used
+    ]:
+        durations[idx] += 1
+
+    return durations
+
+
 def split_segment_to_cues(
     text: str,
     start_ms: int,
@@ -80,30 +142,36 @@ def split_segment_to_cues(
     max_line_length: int,
     lines_per_cue: int,
 ) -> list[tuple[int, int, str]]:
+    if lines_per_cue <= 0:
+        raise ValueError("lines_per_cue must be a positive integer")
+    if end_ms <= start_ms:
+        return []
+
     lines = wrap_text(text, max_line_length)
     if not lines:
         return []
 
-    blocks = [
-        lines[idx : idx + lines_per_cue]
-        for idx in range(0, len(lines), lines_per_cue)
-    ]
+    blocks = group_lines_by_limit(lines, lines_per_cue)
+    total_duration = end_ms - start_ms
+    if len(blocks) > total_duration:
+        blocks = group_lines_evenly(lines, total_duration)
+
     block_texts = ["\n".join(block) for block in blocks]
     if len(block_texts) == 1:
         return [(start_ms, end_ms, block_texts[0])]
 
-    total_duration = max(end_ms - start_ms, len(block_texts) * 500)
     weights = [max(len(block.replace("\n", "")), 1) for block in block_texts]
-    total_weight = sum(weights)
+    durations = allocate_cue_durations(total_duration, weights)
 
     cues: list[tuple[int, int, str]] = []
     cursor = start_ms
-    for idx, (block_text, weight) in enumerate(zip(block_texts, weights), start=1):
+    for idx, (block_text, duration) in enumerate(
+        zip(block_texts, durations), start=1
+    ):
         if idx == len(block_texts):
             block_end = end_ms
         else:
-            block_duration = max(int(total_duration * weight / total_weight), 500)
-            block_end = min(end_ms, cursor + block_duration)
+            block_end = cursor + duration
         cues.append((cursor, block_end, block_text))
         cursor = block_end
     return cues
